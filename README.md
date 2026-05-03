@@ -9,19 +9,27 @@
   <body>
     <header class="site-head">
       <div class="brand">
-        <h1>拼豆像素图</h1>
+        <span class="hero-chip">AI Pixel to Beads</span>
+        <h1>照片转拼豆像素图</h1>
         <p class="tagline">
-          将照片转为 Mard 拼豆色号网格，含用料统计与导出。色卡数据来源：
+          上传图片，自动映射到 Mard 色卡并生成图纸、网格、行列号与材料清单。
+          色卡来源：
           <a href="https://www.doudougongfang.com/kb/beads/mard-palette" target="_blank" rel="noreferrer noopener">
             豆豆工坊 · Mard 拼豆色卡
           </a>
-          （站内工具，非官方）。
+          （第三方工具，非官方）。
         </p>
+        <div class="hero-metrics">
+          <span>221 色</span>
+          <span>本地处理</span>
+          <span>支持 PNG 导出</span>
+        </div>
       </div>
     </header>
 
     <main class="layout">
       <section class="panel controls" aria-label="参数设置">
+        <h2 class="panel-title">步骤 1 · 上传与参数</h2>
         <div
           id="drop-zone"
           class="drop"
@@ -34,16 +42,47 @@
         </div>
         <input id="file" type="file" accept="image/*" hidden />
 
-        <div class="field-row">
+        <div class="field-row field-row-grid">
           <label for="grid-w">宽度（格）</label>
           <input id="grid-w" type="range" min="12" max="256" value="48" />
+          <input id="grid-w-num" class="grid-num" type="number" min="12" max="256" step="1" value="48" inputmode="numeric" />
           <output id="grid-w-val" for="grid-w">48</output>
         </div>
-        <div class="field-row">
+        <div class="field-row field-row-grid">
           <label for="grid-h">高度（格）</label>
           <input id="grid-h" type="range" min="12" max="256" value="48" />
+          <input id="grid-h-num" class="grid-num" type="number" min="12" max="256" step="1" value="48" inputmode="numeric" />
           <output id="grid-h-val" for="grid-h">48</output>
         </div>
+
+        <div class="field">
+          <label for="color-cap">颜色种类上限</label>
+          <select id="color-cap">
+            <option value="0">不限制（尽量还原）</option>
+            <option value="8">最多 8 色</option>
+            <option value="12">最多 12 色</option>
+            <option value="16" selected>最多 16 色</option>
+            <option value="24">最多 24 色</option>
+            <option value="32">最多 32 色</option>
+            <option value="48">最多 48 色</option>
+            <option value="64">最多 64 色</option>
+            <option value="96">最多 96 色</option>
+          </select>
+          <p class="hint field-hint">超出时会把用量最少的色号合并到 LAB 最接近的保留色上（简化拼豆采购）。</p>
+        </div>
+
+        <label class="check">
+          <input id="remove-bg" type="checkbox" />
+          <span>粗略移除背景（沿边缘连通区域，纯色/虚化背景更合适；物体贴图缘时慎用）</span>
+        </label>
+        <div id="bg-rm-sens-row" class="field-row opt-row is-off-opaque">
+          <label for="bg-rm-sensitive">背景灵敏度 LAB²</label>
+          <input id="bg-rm-sensitive" type="range" min="450" max="3200" step="50" value="1200" disabled />
+          <output id="bg-rm-sensitive-val">1200</output>
+        </div>
+        <p class="hint opt-hint">
+          主体与四角颜色太近时调高数字；擦掉过多主体则调低。
+        </p>
 
         <label class="check">
           <input id="lock-aspect" type="checkbox" checked />
@@ -64,37 +103,15 @@
           <input id="bg-color" type="color" value="#ffffff" />
         </div>
 
-        <label class="check">
-          <input id="remove-bg" type="checkbox" />
-          <span>粗略移除背景（沿边缘连通区域，纯色/虚化背景更合适；物体贴图缘时慎用）</span>
-        </label>
-        <div id="bg-rm-sens-row" class="field-row opt-row is-off-opaque">
-          <label for="bg-rm-sensitive">背景灵敏度 LAB²</label>
-          <input id="bg-rm-sensitive" type="range" min="450" max="3200" step="50" value="1200" disabled />
-          <output id="bg-rm-sensitive-val">1200</output>
-        </div>
-        <p class="hint opt-hint">
-          主体与四角颜色太近时调高数字；擦掉过多主体则调低。
-        </p>
-
-        <label class="check">
-          <input id="show-grid" type="checkbox" checked />
-          <span>图纸模式：四边行列号；每第 10 条线加粗；格内色号在格数特别多时会自动省略以免卡顿（见清单）。大图在预览区内滚动查看原字号。</span>
-        </label>
-
         <div class="btn-row">
           <button id="regenerate" type="button" class="ghost" disabled>重新生成</button>
-          <button id="download-png" type="button" disabled>下载 PNG</button>
+          <button id="download-png" type="button" class="primary" disabled>下载 PNG</button>
           <button id="copy-list" type="button" disabled>复制用料表</button>
         </div>
-
-        <p class="footnote">
-          可直接双击 <code>index.html</code> 用 <code>file://</code> 打开（本页已不使用 ES Module）。若仍遇限制，也可用本地静态服务：
-          <code>python3 -m http.server 8080</code>。
-        </p>
       </section>
 
       <section class="panel preview-wrap" aria-label="预览">
+        <h2 class="panel-title">步骤 2 · 图纸预览与材料</h2>
         <div class="preview-head">
           <span id="stats" class="stats muted">请先上传一张图片</span>
         </div>
@@ -114,11 +131,7 @@
     <script src="./app.js"></script>
     <script>
       void (function bindRangeOutputs() {
-        [
-          ['grid-w', 'grid-w-val'],
-          ['grid-h', 'grid-h-val'],
-          ['bg-rm-sensitive', 'bg-rm-sensitive-val'],
-        ].forEach(([id, oid]) => {
+        [['bg-rm-sensitive', 'bg-rm-sensitive-val']].forEach(([id, oid]) => {
           const inp = document.getElementById(id);
           const out = document.getElementById(oid);
           if (!inp || !out) return;
