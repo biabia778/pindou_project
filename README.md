@@ -1,145 +1,17 @@
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>拼豆像素图 · Mard 色卡</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <header class="site-head">
-      <div class="brand">
-        <span class="hero-chip">AI Pixel to Beads</span>
-        <h1>照片转拼豆像素图</h1>
-        <p class="tagline">
-          上传图片，自动映射到 Mard 色卡并生成图纸、网格、行列号与材料清单。
-          色卡来源：
-          <a href="https://www.doudougongfang.com/kb/beads/mard-palette" target="_blank" rel="noreferrer noopener">
-            豆豆工坊 · Mard 拼豆色卡
-          </a>
-          （第三方工具，非官方）。
-        </p>
-        <div class="hero-metrics">
-          <span>221 色</span>
-          <span>本地处理</span>
-          <span>支持 PNG 导出</span>
-        </div>
-      </div>
-    </header>
+# 拼豆像素图（Mard 色卡）
 
-    <main class="layout">
-      <section class="panel controls" aria-label="参数设置">
-        <h2 class="panel-title">步骤 1 · 上传与参数</h2>
-        <div
-          id="drop-zone"
-          class="drop"
-          tabindex="0"
-          role="button"
-          aria-label="选择或拖入图片"
-        >
-          <p><strong>点击或拖放图片到这里</strong></p>
-          <p class="hint">支持 JPG / PNG / WebP · 全流程在浏览器完成，不上传服务器</p>
-        </div>
-        <input id="file" type="file" accept="image/*" hidden />
+纯静态站点：浏览器本地处理图像，映射到豆豆工坊公开的 Mard 221 调色板。
 
-        <div class="field-row field-row-grid">
-          <label for="grid-w">宽度（格）</label>
-          <input id="grid-w" type="range" min="12" max="256" value="48" />
-          <input id="grid-w-num" class="grid-num" type="number" min="12" max="256" step="1" value="48" inputmode="numeric" />
-          <output id="grid-w-val" for="grid-w">48</output>
-        </div>
-        <div class="field-row field-row-grid">
-          <label for="grid-h">高度（格）</label>
-          <input id="grid-h" type="range" min="12" max="256" value="48" />
-          <input id="grid-h-num" class="grid-num" type="number" min="12" max="256" step="1" value="48" inputmode="numeric" />
-          <output id="grid-h-val" for="grid-h">48</output>
-        </div>
+## 内含文件
 
-        <div class="field">
-          <label for="color-cap">颜色种类上限</label>
-          <select id="color-cap">
-            <option value="0">不限制（尽量还原）</option>
-            <option value="8">最多 8 色</option>
-            <option value="12">最多 12 色</option>
-            <option value="16" selected>最多 16 色</option>
-            <option value="24">最多 24 色</option>
-            <option value="32">最多 32 色</option>
-            <option value="48">最多 48 色</option>
-            <option value="64">最多 64 色</option>
-            <option value="96">最多 96 色</option>
-          </select>
-          <p class="hint field-hint">超出时会把用量最少的色号合并到 LAB 最接近的保留色上（简化拼豆采购）。</p>
-        </div>
+- `index.html` — 页面入口  
+- `styles.css`、`app.js`、`color.js`、`palette-data.js`、`subject-bg.js`  
+- `.nojekyll` — 关闭 GitHub Pages 的 Jekyll，避免静态资源路径异常  
 
-        <label class="check">
-          <input id="remove-bg" type="checkbox" />
-          <span>粗略移除背景（沿边缘连通区域，纯色/虚化背景更合适；物体贴图缘时慎用）</span>
-        </label>
-        <div id="bg-rm-sens-row" class="field-row opt-row is-off-opaque">
-          <label for="bg-rm-sensitive">背景灵敏度 LAB²</label>
-          <input id="bg-rm-sensitive" type="range" min="450" max="3200" step="50" value="1200" disabled />
-          <output id="bg-rm-sensitive-val">1200</output>
-        </div>
-        <p class="hint opt-hint">
-          主体与四角颜色太近时调高数字；擦掉过多主体则调低。
-        </p>
+## GitHub Pages
 
-        <label class="check">
-          <input id="lock-aspect" type="checkbox" checked />
-          <span>锁定原图宽高比（改宽度自动算高度）</span>
-        </label>
+仓库 **Settings → Pages**：发布源选 **`main` / `(root)`**（不要用仅含 README 的子目录）。
 
-        <div class="field">
-          <label for="fit">适配方式</label>
-          <select id="fit">
-            <option value="contain" selected>包含（居中，留白用背景）</option>
-            <option value="cover">铺满（裁剪）</option>
-            <option value="stretch">拉伸（填满）</option>
-          </select>
-        </div>
+---
 
-        <div class="field-inline">
-          <label for="bg-color">留白背景</label>
-          <input id="bg-color" type="color" value="#ffffff" />
-        </div>
-
-        <div class="btn-row">
-          <button id="regenerate" type="button" class="ghost" disabled>重新生成</button>
-          <button id="download-png" type="button" class="primary" disabled>下载 PNG</button>
-          <button id="copy-list" type="button" disabled>复制用料表</button>
-        </div>
-      </section>
-
-      <section class="panel preview-wrap" aria-label="预览">
-        <h2 class="panel-title">步骤 2 · 图纸预览与材料</h2>
-        <div class="preview-head">
-          <span id="stats" class="stats muted">请先上传一张图片</span>
-        </div>
-        <div class="preview-canvas-box">
-          <canvas id="preview-canvas" width="48" height="48"></canvas>
-        </div>
-        <div class="legend-block">
-          <h2 class="legend-title">材料清单（按用量）</h2>
-          <div id="legend" class="legend"></div>
-        </div>
-      </section>
-    </main>
-
-    <script src="./palette-data.js"></script>
-    <script src="./color.js"></script>
-    <script src="./subject-bg.js"></script>
-    <script src="./app.js"></script>
-    <script>
-      void (function bindRangeOutputs() {
-        [['bg-rm-sensitive', 'bg-rm-sensitive-val']].forEach(([id, oid]) => {
-          const inp = document.getElementById(id);
-          const out = document.getElementById(oid);
-          if (!inp || !out) return;
-          const sync = () => (out.textContent = inp.value);
-          inp.addEventListener('input', sync);
-          sync();
-        });
-      })();
-    </script>
-  </body>
-</html>
+色卡引用：[豆豆工坊 · Mard 拼豆色卡](https://www.doudougongfang.com/kb/beads/mard-palette)。
