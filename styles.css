@@ -545,3 +545,113 @@ code {
     gap: 0.42rem;
   }
 }
+
+.hidden {
+  display: none !important;
+}
+
+.edit-panel {
+  margin-top: 0.95rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(74, 105, 214, 0.14);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.edit-heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #2d3550;
+}
+
+.edit-intro {
+  margin: 0 0 0.65rem;
+  font-size: 0.8rem;
+}
+
+.edit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.55rem;
+}
+
+.edit-toolbar-gap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.edit-tab,
+.edit-action {
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #35405e;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.38rem 0.62rem;
+  cursor: pointer;
+}
+
+.edit-tab.active {
+  border-color: rgba(74, 105, 214, 0.35);
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.edit-action.ghost {
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.edit-brush-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #4a4f6a;
+}
+
+.edit-brush-label input[type='range'] {
+  width: 88px;
+  accent-color: var(--primary);
+}
+
+.edit-brush-label output {
+  min-width: 1.6rem;
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.edit-stage {
+  border: 1px solid rgba(74, 105, 214, 0.12);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.7) 0%, rgba(248, 250, 255, 0.5) 100%);
+  padding: 0.45rem;
+  overflow: hidden;
+}
+
+.edit-view {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  cursor: crosshair;
+  touch-action: none;
+  border-radius: 6px;
+}
+
+.edit-panel .edit-tab:hover,
+.edit-panel .edit-action:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.edit-panel .edit-action:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}

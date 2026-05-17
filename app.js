@@ -681,20 +681,43 @@ function refreshLegend(w, h, materials) {
   els.legend.appendChild(frag);
 }
 
+/** @returns {CanvasImageSource | null} */
+function getPipelineImageSource() {
+  if (typeof imageEditor !== 'undefined' && imageEditor.isActive()) {
+    const prepared = imageEditor.getPreparedCanvas();
+    if (prepared) return prepared;
+  }
+  return sourceImage;
+}
+
 function runPipeline() {
   if (!sourceImage) return;
+  const src = getPipelineImageSource();
+  if (!src) return;
   const w = clampGridDim(els.width.value);
   const h = clampGridDim(els.height.value);
   const fit = els.fit.value;
-  const work = drawSourceToWorkCanvas(sourceImage, w, h, fit);
-  if (els.removeBg.checked) {
+  const work = drawSourceToWorkCanvas(src, w, h, fit);
+  if (
+    els.removeBg.checked &&
+    !(typeof imageEditor !== 'undefined' && imageEditor.isActive()) &&
+    typeof removeBorderConnectedBackground === 'function'
+  ) {
     const wCx = work.getContext('2d');
-    if (wCx && typeof removeBorderConnectedBackground === 'function') {
+    if (wCx) {
       const thr = Number(els.bgRmSensitive.value);
-      removeBorderConnectedBackground(wCx, Number.isFinite(thr) ? thr : 1200);
+      removeBorderConnectedBackground(wCx, Number.isFinite(thr) ? thr : 520);
     }
   }
   rasterize(work, w, h);
+}
+
+function syncAutoRemoveBgToMask() {
+  if (!els.removeBg.checked) return;
+  if (typeof imageEditor === 'undefined' || !imageEditor.isActive?.()) return;
+  if (!imageEditor.applyCornerBgToMask) return;
+  const thr = Number(els.bgRmSensitive.value);
+  imageEditor.applyCornerBgToMask(Number.isFinite(thr) ? thr : 520);
 }
 
 function syncRemoveBgSensitivityRow() {
@@ -712,14 +735,25 @@ function loadImageFile(file) {
   img.onload = () => {
     URL.revokeObjectURL(url);
     sourceImage = img;
-    naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
 
-    if (els.lockAspect.checked) {
-      const curW = clampGridDim(els.width.value || 48);
-      setWidthDim(curW, { applyAspect: true });
+    const afterReady = () => {
+      if (els.lockAspect.checked) {
+        const curW = clampGridDim(els.width.value || 48);
+        setWidthDim(curW, { applyAspect: true });
+      }
+      els.regenerate.disabled = false;
+      runPipeline();
+    };
+
+    if (typeof imageEditor !== 'undefined' && imageEditor.loadFromImage) {
+      imageEditor.loadFromImage(img, () => {
+        naturalAspect = imageEditor.getAspect();
+        afterReady();
+      });
+    } else {
+      naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+      afterReady();
     }
-    els.regenerate.disabled = false;
-    runPipeline();
   };
   img.onerror = () => URL.revokeObjectURL(url);
   img.src = url;
@@ -783,10 +817,12 @@ function wireUi() {
   });
   els.removeBg.addEventListener('change', () => {
     syncRemoveBgSensitivityRow();
+    if (sourceImage && els.removeBg.checked) syncAutoRemoveBgToMask();
     if (sourceImage) runPipeline();
   });
   els.bgRmSensitive.addEventListener('input', () => {
-    if (sourceImage && els.removeBg.checked) runPipeline();
+    if (sourceImage && els.removeBg.checked) syncAutoRemoveBgToMask();
+    if (sourceImage) runPipeline();
   });
   syncRemoveBgSensitivityRow();
 

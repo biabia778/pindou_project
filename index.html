@@ -42,6 +42,43 @@
         </div>
         <input id="file" type="file" accept="image/*" hidden />
 
+        <div id="edit-panel" class="edit-panel" hidden>
+          <h3 class="edit-heading">裁切与蒙版</h3>
+          <p class="hint edit-intro">
+            裁切 → 蒙版：画笔/魔棒选区、四角去背、撤销重做；蒙版外使用「留白背景」单色。
+          </p>
+          <div class="edit-toolbar">
+            <button id="edit-mode-crop" type="button" class="edit-tab active">裁剪</button>
+            <button id="edit-mode-mask" type="button" class="edit-tab">蒙版</button>
+            <button id="apply-crop" type="button" class="edit-action">应用裁切</button>
+            <span class="edit-mask-only hidden edit-toolbar-gap">
+              <button id="mask-tool-brush" type="button" class="edit-tab active">画笔</button>
+              <button id="mask-tool-wand" type="button" class="edit-tab">魔棒</button>
+              <button id="brush-keep" type="button" class="edit-tab active">保留</button>
+              <button id="brush-erase" type="button" class="edit-tab">擦除</button>
+              <label class="edit-brush-label edit-brush-only">
+                笔刷
+                <input id="brush-size" type="range" min="8" max="72" value="28" />
+                <output id="brush-size-val">28</output>
+              </label>
+              <label class="edit-brush-label edit-wand-only hidden">
+                魔棒容差
+                <input id="wand-tolerance" type="range" min="6" max="80" value="22" />
+                <output id="wand-tolerance-val">22</output>
+              </label>
+              <button id="mask-undo" type="button" class="edit-action ghost" disabled>撤销</button>
+              <button id="mask-redo" type="button" class="edit-action ghost" disabled>重做</button>
+              <button id="mask-auto-corner" type="button" class="edit-action">四角去背</button>
+              <button id="mask-protect-center" type="button" class="edit-action ghost">保护中心</button>
+              <button id="mask-fill" type="button" class="edit-action ghost">整图保留</button>
+              <button id="mask-clear" type="button" class="edit-action ghost">整图去背</button>
+            </span>
+          </div>
+          <div class="edit-stage">
+            <canvas id="edit-view" class="edit-view" width="320" height="240" aria-label="裁切与蒙版编辑区"></canvas>
+          </div>
+        </div>
+
         <div class="field-row field-row-grid">
           <label for="grid-w">宽度（格）</label>
           <input id="grid-w" type="range" min="12" max="256" value="48" />
@@ -73,15 +110,15 @@
 
         <label class="check">
           <input id="remove-bg" type="checkbox" />
-          <span>粗略移除背景（沿边缘连通区域，纯色/虚化背景更合适；物体贴图缘时慎用）</span>
+          <span>四角智能去背（写入蒙版，可撤销；复杂背景请配合蒙版工具）</span>
         </label>
         <div id="bg-rm-sens-row" class="field-row opt-row is-off-opaque">
-          <label for="bg-rm-sensitive">背景灵敏度 LAB²</label>
-          <input id="bg-rm-sensitive" type="range" min="450" max="3200" step="50" value="1200" disabled />
-          <output id="bg-rm-sensitive-val">1200</output>
+          <label for="bg-rm-sensitive">去背灵敏度 LAB²</label>
+          <input id="bg-rm-sensitive" type="range" min="120" max="1600" step="40" value="520" disabled />
+          <output id="bg-rm-sensitive-val">520</output>
         </div>
         <p class="hint opt-hint">
-          主体与四角颜色太近时调高数字；擦掉过多主体则调低。
+          从画面四角向内识别背景；数值越小越保守。误伤主体时请点「撤销」或调低灵敏度。
         </p>
 
         <label class="check">
@@ -128,6 +165,7 @@
     <script src="./palette-data.js"></script>
     <script src="./color.js"></script>
     <script src="./subject-bg.js"></script>
+    <script src="./image-edit.js"></script>
     <script src="./app.js"></script>
     <script>
       void (function bindRangeOutputs() {

@@ -5,7 +5,7 @@
 ## 内含文件
 
 - `index.html` — 页面入口  
-- `styles.css`、`app.js`、`color.js`、`palette-data.js`、`subject-bg.js`  
+- `styles.css`、`app.js`、`color.js`、`palette-data.js`、`subject-bg.js`、`image-edit.js`（裁切/蒙版/魔棒）  
 - `.nojekyll` — 关闭 GitHub Pages 的 Jekyll，避免静态资源路径异常  
 
 ## GitHub Pages
