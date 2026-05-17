@@ -37,6 +37,10 @@
   let painting = false;
   /** @type {{ x: number, y: number } | null} */
   let lastPaintPt = null;
+  /** iOS/Android 触摸跟踪（Safari 上 pointer 事件不可靠） */
+  let activeTouchId = null;
+  let suppressMouseUntil = 0;
+  let scrollLocked = false;
   const isCoarsePointer =
     typeof window !== 'undefined' &&
     (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
@@ -67,6 +71,15 @@
     wandTolVal: /** @type {HTMLElement | null} */ (document.getElementById('wand-tolerance-val')),
     autoCornerBg: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-auto-corner')),
     protectCenter: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-protect-center')),
+    cropTouchUi: /** @type {HTMLElement | null} */ (document.getElementById('crop-touch-ui')),
+    cropX: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-x')),
+    cropY: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-y')),
+    cropW: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-w')),
+    cropH: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-h')),
+    cropXOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-x-out')),
+    cropYOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-y-out')),
+    cropWOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-w-out')),
+    cropHOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-h-out')),
   };
 
   const viewCtx = els.view?.getContext('2d');
@@ -93,6 +106,59 @@
     cropRect.h = Math.max(MIN_CROP, Math.min(cropRect.h, H));
     cropRect.x = Math.max(0, Math.min(cropRect.x, W - cropRect.w));
     cropRect.y = Math.max(0, Math.min(cropRect.y, H - cropRect.h));
+  }
+
+  function syncCropSlidersFromRect() {
+    if (!sourceCanvas) return;
+    const W = sourceCanvas.width;
+    const H = sourceCanvas.height;
+    if (els.cropX) {
+      els.cropX.max = String(Math.max(0, W - MIN_CROP));
+      els.cropX.value = String(Math.round(cropRect.x));
+      if (els.cropXOut) els.cropXOut.textContent = els.cropX.value;
+    }
+    if (els.cropY) {
+      els.cropY.max = String(Math.max(0, H - MIN_CROP));
+      els.cropY.value = String(Math.round(cropRect.y));
+      if (els.cropYOut) els.cropYOut.textContent = els.cropY.value;
+    }
+    if (els.cropW) {
+      els.cropW.max = String(W);
+      els.cropW.value = String(Math.round(cropRect.w));
+      if (els.cropWOut) els.cropWOut.textContent = els.cropW.value;
+    }
+    if (els.cropH) {
+      els.cropH.max = String(H);
+      els.cropH.value = String(Math.round(cropRect.h));
+      if (els.cropHOut) els.cropHOut.textContent = els.cropH.value;
+    }
+  }
+
+  function applyCropSlidersToRect() {
+    if (!sourceCanvas) return;
+    const W = sourceCanvas.width;
+    const H = sourceCanvas.height;
+    if (els.cropX) cropRect.x = Number(els.cropX.value) || 0;
+    if (els.cropY) cropRect.y = Number(els.cropY.value) || 0;
+    if (els.cropW) cropRect.w = Number(els.cropW.value) || MIN_CROP;
+    if (els.cropH) cropRect.h = Number(els.cropH.value) || MIN_CROP;
+    clampCrop();
+    syncCropSlidersFromRect();
+    renderView();
+  }
+
+  function lockPageScroll() {
+    if (scrollLocked) return;
+    scrollLocked = true;
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function unlockPageScroll() {
+    if (!scrollLocked) return;
+    scrollLocked = false;
+    document.documentElement.style.overflow = '';
+    document.body.style.overflow = '';
   }
 
   function layoutView() {
@@ -171,12 +237,15 @@
     }
   }
 
-  /** @param {PointerEvent | MouseEvent | Touch} ev */
-  function clientToSource(ev) {
+  /**
+   * @param {number} clientX
+   * @param {number} clientY
+   */
+  function clientXYToSource(clientX, clientY) {
     if (!els.view || !sourceCanvas) return { x: 0, y: 0 };
     const rect = els.view.getBoundingClientRect();
-    const nx = (ev.clientX - rect.left) / Math.max(1, rect.width);
-    const ny = (ev.clientY - rect.top) / Math.max(1, rect.height);
+    const nx = (clientX - rect.left) / Math.max(1, rect.width);
+    const ny = (clientY - rect.top) / Math.max(1, rect.height);
     return {
       x: Math.max(0, Math.min(sourceCanvas.width - 1, nx * sourceCanvas.width)),
       y: Math.max(0, Math.min(sourceCanvas.height - 1, ny * sourceCanvas.height)),
@@ -184,21 +253,24 @@
   }
 
   /**
-   * 裁切命中：屏幕像素热区（手机端更大）
+   * 裁切命中：角点 + 四边宽带（触屏更易点中）
    * @param {number} clientX
    * @param {number} clientY
    */
   function hitCropHandle(clientX, clientY) {
     if (!els.view || !sourceCanvas) return null;
     const rect = els.view.getBoundingClientRect();
-    const slopPx = isCoarsePointer ? 36 : 14;
+    const slopPx = isCoarsePointer ? 44 : 14;
+    const edgePx = isCoarsePointer ? 32 : 12;
     const r = cropRect;
+    const W = sourceCanvas.width;
+    const H = sourceCanvas.height;
 
     /** @param {number} sx @param {number} sy */
     function toScreen(sx, sy) {
       return {
-        x: rect.left + (sx / sourceCanvas.width) * rect.width,
-        y: rect.top + (sy / sourceCanvas.height) * rect.height,
+        x: rect.left + (sx / W) * rect.width,
+        y: rect.top + (sy / H) * rect.height,
       };
     }
 
@@ -213,7 +285,27 @@
       if (Math.hypot(clientX - sc.x, clientY - sc.y) <= slopPx) return k;
     }
 
-    const pt = clientToSource({ clientX, clientY });
+    const tl = toScreen(r.x, r.y);
+    const br = toScreen(r.x + r.w, r.y + r.h);
+    const x1 = tl.x;
+    const y1 = tl.y;
+    const x2 = br.x;
+    const y2 = br.y;
+
+    if (clientY >= y1 - edgePx && clientY <= y1 + edgePx && clientX >= x1 - slopPx && clientX <= x2 + slopPx) {
+      return 'n';
+    }
+    if (clientY >= y2 - edgePx && clientY <= y2 + edgePx && clientX >= x1 - slopPx && clientX <= x2 + slopPx) {
+      return 's';
+    }
+    if (clientX >= x1 - edgePx && clientX <= x1 + edgePx && clientY >= y1 - slopPx && clientY <= y2 + slopPx) {
+      return 'w';
+    }
+    if (clientX >= x2 - edgePx && clientX <= x2 + edgePx && clientY >= y1 - slopPx && clientY <= y2 + slopPx) {
+      return 'e';
+    }
+
+    const pt = clientXYToSource(clientX, clientY);
     if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return 'move';
     return null;
   }
@@ -254,6 +346,12 @@
     document.querySelectorAll('.edit-mask-only').forEach((n) => {
       n.classList.toggle('hidden', mode !== 'mask');
     });
+    document.querySelectorAll('.edit-crop-only').forEach((n) => {
+      n.classList.toggle('hidden', mode !== 'crop');
+    });
+    if (els.cropTouchUi) {
+      els.cropTouchUi.classList.toggle('hidden', mode !== 'crop' || !isCoarsePointer);
+    }
     if (els.view) els.view.style.cursor = mode === 'mask' && maskTool === 'wand' ? 'cell' : 'crosshair';
     renderView();
   }
@@ -297,6 +395,7 @@
     undoStack.length = 0;
     redoStack.length = 0;
     updateUndoButtons();
+    syncCropSlidersFromRect();
     layoutView();
     renderView();
     notifyChangeImmediate();
@@ -507,6 +606,9 @@
     updateUndoButtons();
     setMaskTool('brush');
 
+    syncCropSlidersFromRect();
+    if (isCoarsePointer) document.documentElement.classList.add('coarse-ui');
+
     if (els.panel) els.panel.hidden = false;
     layoutView();
     renderView();
@@ -549,16 +651,13 @@
     return Boolean(sourceCanvas && maskCanvas);
   }
 
-  function pointerDown(ev) {
+  /**
+   * @param {number} clientX
+   * @param {number} clientY
+   */
+  function beginInteraction(clientX, clientY) {
     if (!sourceCanvas || !els.view) return;
-    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
-    ev.preventDefault();
-    try {
-      els.view.setPointerCapture(ev.pointerId);
-    } catch {
-      /* 部分浏览器可能失败，仍继续 */
-    }
-    const pt = clientToSource(ev);
+    const pt = clientXYToSource(clientX, clientY);
     if (mode === 'mask') {
       if (maskTool === 'wand') {
         magicWandAt(pt.x, pt.y);
@@ -570,16 +669,20 @@
       paintMask(pt.x, pt.y);
       return;
     }
-    const hit = hitCropHandle(ev.clientX, ev.clientY);
+    const hit = hitCropHandle(clientX, clientY);
     if (hit) {
       drag = { kind: hit, sx: pt.x, sy: pt.y, rect: { ...cropRect } };
+      lockPageScroll();
     }
   }
 
-  function pointerMove(ev) {
+  /**
+   * @param {number} clientX
+   * @param {number} clientY
+   */
+  function moveInteraction(clientX, clientY) {
     if (!sourceCanvas || (!drag && !painting)) return;
-    if (painting || drag) ev.preventDefault();
-    const pt = clientToSource(ev);
+    const pt = clientXYToSource(clientX, clientY);
     if (painting && mode === 'mask') {
       paintMask(pt.x, pt.y);
       return;
@@ -607,19 +710,12 @@
     }
     cropRect = { x, y, w, h };
     clampCrop();
+    syncCropSlidersFromRect();
     renderView();
   }
 
-  function pointerUp(ev) {
-    if (els.view && ev?.pointerId != null) {
-      try {
-        if (els.view.hasPointerCapture(ev.pointerId)) {
-          els.view.releasePointerCapture(ev.pointerId);
-        }
-      } catch {
-        /* ignore */
-      }
-    }
+  function endInteraction() {
+    unlockPageScroll();
     if (painting) {
       painting = false;
       lastPaintPt = null;
@@ -631,16 +727,109 @@
     }
   }
 
+  /** @param {TouchList} list @param {number} id */
+  function findTouch(list, id) {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].identifier === id) return list[i];
+    }
+    return null;
+  }
+
+  /** @param {TouchEvent} e */
+  function onTouchStart(e) {
+    if (!els.view || activeTouchId !== null) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const rect = els.view.getBoundingClientRect();
+    if (
+      t.clientX < rect.left ||
+      t.clientX > rect.right ||
+      t.clientY < rect.top ||
+      t.clientY > rect.bottom
+    ) {
+      return;
+    }
+    activeTouchId = t.identifier;
+    suppressMouseUntil = Date.now() + 900;
+    e.preventDefault();
+    beginInteraction(t.clientX, t.clientY);
+  }
+
+  /** @param {TouchEvent} e */
+  function onTouchMove(e) {
+    if (activeTouchId === null) return;
+    const t = findTouch(e.touches, activeTouchId) || findTouch(e.changedTouches, activeTouchId);
+    if (!t) return;
+    if (drag || painting) e.preventDefault();
+    moveInteraction(t.clientX, t.clientY);
+  }
+
+  /** @param {TouchEvent} e */
+  function onTouchEnd(e) {
+    if (activeTouchId === null) return;
+    let ended = false;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchId) ended = true;
+    }
+    if (!ended) return;
+    activeTouchId = null;
+    e.preventDefault();
+    endInteraction();
+  }
+
+  /** @param {PointerEvent} ev */
+  function onPointerDown(ev) {
+    if (!els.view) return;
+    if (Date.now() < suppressMouseUntil) return;
+    if (ev.pointerType === 'touch') return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    ev.preventDefault();
+    try {
+      els.view.setPointerCapture(ev.pointerId);
+    } catch {
+      /* ignore */
+    }
+    beginInteraction(ev.clientX, ev.clientY);
+  }
+
+  /** @param {PointerEvent} ev */
+  function onPointerMove(ev) {
+    if (!drag && !painting) return;
+    if (ev.pointerType === 'touch') return;
+    if (drag || painting) ev.preventDefault();
+    moveInteraction(ev.clientX, ev.clientY);
+  }
+
+  /** @param {PointerEvent} ev */
+  function onPointerUp(ev) {
+    if (ev.pointerType === 'touch') return;
+    if (els.view && ev.pointerId != null) {
+      try {
+        if (els.view.hasPointerCapture(ev.pointerId)) {
+          els.view.releasePointerCapture(ev.pointerId);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    endInteraction();
+  }
+
   function wire() {
     if (!els.view) return;
 
     const view = els.view;
     view.style.touchAction = 'none';
 
-    view.addEventListener('pointerdown', (e) => pointerDown(e));
-    view.addEventListener('pointermove', (e) => pointerMove(e));
-    view.addEventListener('pointerup', (e) => pointerUp(e));
-    view.addEventListener('pointercancel', (e) => pointerUp(e));
+    view.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd, { passive: false });
+    window.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    view.addEventListener('pointerdown', onPointerDown);
+    view.addEventListener('pointermove', onPointerMove);
+    view.addEventListener('pointerup', onPointerUp);
+    view.addEventListener('pointercancel', onPointerUp);
 
     els.modeCrop?.addEventListener('click', () => setMode('crop'));
     els.modeMask?.addEventListener('click', () => setMode('mask'));
@@ -659,6 +848,14 @@
       if (els.brushVal) els.brushVal.textContent = String(brushSize);
     });
     els.applyCrop?.addEventListener('click', applyCrop);
+    for (const id of ['crop-x', 'crop-y', 'crop-w', 'crop-h']) {
+      const inp = document.getElementById(id);
+      if (!inp) continue;
+      inp.addEventListener('input', () => {
+        applyCropSlidersToRect();
+        notifyChange();
+      });
+    }
     els.maskFill?.addEventListener('click', () => fillMask(true));
     els.maskClear?.addEventListener('click', () => fillMask(false));
     els.maskUndo?.addEventListener('click', undoMask);

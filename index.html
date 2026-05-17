@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>拼豆像素图 · Mard 色卡</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -76,6 +76,15 @@
           </div>
           <div class="edit-stage">
             <canvas id="edit-view" class="edit-view" width="320" height="240" aria-label="裁切与蒙版编辑区"></canvas>
+          </div>
+          <div id="crop-touch-ui" class="crop-touch-ui edit-crop-only hidden">
+            <p class="hint crop-touch-hint">触屏裁切：拖蓝色框内部移动；拖四边/四角缩放。若拖拽不灵，请用下方滑块。</p>
+            <div class="crop-slider-grid">
+              <label class="crop-slider-row">左 <input id="crop-x" type="range" min="0" max="100" value="0" /><output id="crop-x-out">0</output></label>
+              <label class="crop-slider-row">上 <input id="crop-y" type="range" min="0" max="100" value="0" /><output id="crop-y-out">0</output></label>
+              <label class="crop-slider-row">宽 <input id="crop-w" type="range" min="24" max="100" value="100" /><output id="crop-w-out">100</output></label>
+              <label class="crop-slider-row">高 <input id="crop-h" type="range" min="24" max="100" value="100" /><output id="crop-h-out">100</output></label>
+            </div>
           </div>
         </div>
 
