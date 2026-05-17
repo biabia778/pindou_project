@@ -35,6 +35,11 @@
   /** @type {null | { kind: string, sx: number, sy: number, rect: { x: number, y: number, w: number, h: number } }} */
   let drag = null;
   let painting = false;
+  /** @type {{ x: number, y: number } | null} */
+  let lastPaintPt = null;
+  const isCoarsePointer =
+    typeof window !== 'undefined' &&
+    (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window);
 
   /** @type {(() => void) | null} */
   let onChange = null;
@@ -146,7 +151,7 @@
       viewCtx.strokeStyle = '#4a69d6';
       viewCtx.lineWidth = 2;
       viewCtx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
-      const hs = 8;
+      const hs = isCoarsePointer ? 18 : 8;
       const handles = [
         [rx, ry],
         [rx + rw, ry],
@@ -166,22 +171,37 @@
     }
   }
 
-  /** @param {MouseEvent | Touch} ev */
+  /** @param {PointerEvent | MouseEvent | Touch} ev */
   function clientToSource(ev) {
     if (!els.view || !sourceCanvas) return { x: 0, y: 0 };
     const rect = els.view.getBoundingClientRect();
-    const vx = ((ev.clientX - rect.left) / rect.width) * els.view.width;
-    const vy = ((ev.clientY - rect.top) / rect.height) * els.view.height;
+    const nx = (ev.clientX - rect.left) / Math.max(1, rect.width);
+    const ny = (ev.clientY - rect.top) / Math.max(1, rect.height);
     return {
-      x: Math.max(0, Math.min(sourceCanvas.width - 1, vx / viewScale)),
-      y: Math.max(0, Math.min(sourceCanvas.height - 1, vy / viewScale)),
+      x: Math.max(0, Math.min(sourceCanvas.width - 1, nx * sourceCanvas.width)),
+      y: Math.max(0, Math.min(sourceCanvas.height - 1, ny * sourceCanvas.height)),
     };
   }
 
-  /** @param {number} sx @param {number} sy */
-  function hitCropHandle(sx, sy) {
-    const pad = 12 / viewScale;
+  /**
+   * 裁切命中：屏幕像素热区（手机端更大）
+   * @param {number} clientX
+   * @param {number} clientY
+   */
+  function hitCropHandle(clientX, clientY) {
+    if (!els.view || !sourceCanvas) return null;
+    const rect = els.view.getBoundingClientRect();
+    const slopPx = isCoarsePointer ? 36 : 14;
     const r = cropRect;
+
+    /** @param {number} sx @param {number} sy */
+    function toScreen(sx, sy) {
+      return {
+        x: rect.left + (sx / sourceCanvas.width) * rect.width,
+        y: rect.top + (sy / sourceCanvas.height) * rect.height,
+      };
+    }
+
     const corners = [
       ['nw', r.x, r.y],
       ['ne', r.x + r.w, r.y],
@@ -189,9 +209,12 @@
       ['se', r.x + r.w, r.y + r.h],
     ];
     for (const [k, hx, hy] of corners) {
-      if (Math.abs(sx - hx) <= pad && Math.abs(sy - hy) <= pad) return k;
+      const sc = toScreen(hx, hy);
+      if (Math.hypot(clientX - sc.x, clientY - sc.y) <= slopPx) return k;
     }
-    if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) return 'move';
+
+    const pt = clientToSource({ clientX, clientY });
+    if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return 'move';
     return null;
   }
 
@@ -200,12 +223,25 @@
     if (!maskCanvas) return;
     const mctx = maskCanvas.getContext('2d');
     if (!mctx) return;
+    const fillStyle = brushMode === 'keep' ? '#ffffff' : '#000000';
     mctx.save();
-    mctx.fillStyle = brushMode === 'keep' ? '#ffffff' : '#000000';
+    mctx.fillStyle = fillStyle;
+    mctx.strokeStyle = fillStyle;
+    mctx.lineCap = 'round';
+    mctx.lineJoin = 'round';
+    mctx.lineWidth = brushSize;
+
+    if (lastPaintPt) {
+      mctx.beginPath();
+      mctx.moveTo(lastPaintPt.x, lastPaintPt.y);
+      mctx.lineTo(sx, sy);
+      mctx.stroke();
+    }
     mctx.beginPath();
     mctx.arc(sx, sy, brushSize / 2, 0, Math.PI * 2);
     mctx.fill();
     mctx.restore();
+    lastPaintPt = { x: sx, y: sy };
     renderView();
     notifyChange();
   }
@@ -514,8 +550,14 @@
   }
 
   function pointerDown(ev) {
-    if (!sourceCanvas) return;
+    if (!sourceCanvas || !els.view) return;
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
     ev.preventDefault();
+    try {
+      els.view.setPointerCapture(ev.pointerId);
+    } catch {
+      /* 部分浏览器可能失败，仍继续 */
+    }
     const pt = clientToSource(ev);
     if (mode === 'mask') {
       if (maskTool === 'wand') {
@@ -524,17 +566,19 @@
       }
       pushUndo();
       painting = true;
+      lastPaintPt = null;
       paintMask(pt.x, pt.y);
       return;
     }
-    const hit = hitCropHandle(pt.x, pt.y);
+    const hit = hitCropHandle(ev.clientX, ev.clientY);
     if (hit) {
       drag = { kind: hit, sx: pt.x, sy: pt.y, rect: { ...cropRect } };
     }
   }
 
   function pointerMove(ev) {
-    if (!sourceCanvas || !drag && !painting) return;
+    if (!sourceCanvas || (!drag && !painting)) return;
+    if (painting || drag) ev.preventDefault();
     const pt = clientToSource(ev);
     if (painting && mode === 'mask') {
       paintMask(pt.x, pt.y);
@@ -566,9 +610,19 @@
     renderView();
   }
 
-  function pointerUp() {
+  function pointerUp(ev) {
+    if (els.view && ev?.pointerId != null) {
+      try {
+        if (els.view.hasPointerCapture(ev.pointerId)) {
+          els.view.releasePointerCapture(ev.pointerId);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     if (painting) {
       painting = false;
+      lastPaintPt = null;
       notifyChangeImmediate();
     }
     if (drag) {
@@ -580,25 +634,13 @@
   function wire() {
     if (!els.view) return;
 
-    els.view.addEventListener('mousedown', (e) => pointerDown(e));
-    window.addEventListener('mousemove', (e) => pointerMove(e));
-    window.addEventListener('mouseup', pointerUp);
+    const view = els.view;
+    view.style.touchAction = 'none';
 
-    els.view.addEventListener(
-      'touchstart',
-      (e) => {
-        if (e.touches[0]) pointerDown(e.touches[0]);
-      },
-      { passive: false },
-    );
-    els.view.addEventListener(
-      'touchmove',
-      (e) => {
-        if (e.touches[0]) pointerMove(e.touches[0]);
-      },
-      { passive: false },
-    );
-    window.addEventListener('touchend', pointerUp);
+    view.addEventListener('pointerdown', (e) => pointerDown(e));
+    view.addEventListener('pointermove', (e) => pointerMove(e));
+    view.addEventListener('pointerup', (e) => pointerUp(e));
+    view.addEventListener('pointercancel', (e) => pointerUp(e));
 
     els.modeCrop?.addEventListener('click', () => setMode('crop'));
     els.modeMask?.addEventListener('click', () => setMode('mask'));
@@ -650,6 +692,9 @@
     });
 
     if (els.brush) {
+      if (isCoarsePointer && Number(els.brush.value) < 36) {
+        els.brush.value = '40';
+      }
       brushSize = Number(els.brush.value) || 28;
       if (els.brushVal) els.brushVal.textContent = String(brushSize);
     }

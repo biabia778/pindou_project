@@ -633,6 +633,9 @@ code {
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.7) 0%, rgba(248, 250, 255, 0.5) 100%);
   padding: 0.45rem;
   overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .edit-view {
@@ -642,6 +645,9 @@ code {
   height: auto;
   cursor: crosshair;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   border-radius: 6px;
 }
 
