@@ -5,7 +5,7 @@
 const PKG_VERSION = '1.6.0';
 const ORT_VERSION = '1.21.0';
 
-/** @type {Promise<{ default: Function }> | null} */
+/** @type {Promise<Record<string, unknown>> | null} */
 let loaderPromise = null;
 
 /**
@@ -18,10 +18,11 @@ async function loadRemoveBackground() {
     );
   }
   const mod = await loaderPromise;
-  if (typeof mod.default !== 'function') {
+  const removeBackground = mod.removeBackground || mod.default;
+  if (typeof removeBackground !== 'function') {
     throw new Error('AI 模块加载异常');
   }
-  return mod.default;
+  return removeBackground;
 }
 
 /**
