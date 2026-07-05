@@ -26,6 +26,37 @@ async function loadRemoveBackground() {
 }
 
 /**
+ * IMG.LY 只接受 Blob / URL / ArrayBuffer / 已是 ndarray 的张量，不能直接传 canvas。
+ * @param {string | HTMLCanvasElement | Blob | ImageData} imageSource
+ * @returns {Promise<Blob>}
+ */
+async function normalizeImageSource(imageSource) {
+  if (imageSource instanceof Blob) return imageSource;
+
+  if (imageSource instanceof HTMLCanvasElement) {
+    const blob = await new Promise((resolve, reject) => {
+      imageSource.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('无法读取裁切后的图片'))),
+        'image/png',
+      );
+    });
+    return blob;
+  }
+
+  if (imageSource instanceof ImageData) {
+    const canvas = document.createElement('canvas');
+    canvas.width = imageSource.width;
+    canvas.height = imageSource.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('无法创建画布');
+    ctx.putImageData(imageSource, 0, 0);
+    return normalizeImageSource(canvas);
+  }
+
+  return imageSource;
+}
+
+/**
  * @param {string | HTMLCanvasElement | Blob | ImageData} imageSource
  * @param {(key: string, current: number, total: number) => void} [onProgress]
  * @returns {Promise<Blob>}
@@ -47,7 +78,7 @@ export async function aiRemoveBackground(imageSource, onProgress) {
     debug: false,
     output: {
       format: 'image/png',
-      type: 'foreground',
+      quality: 1,
     },
     progress: onProgress,
     fetchArgs: {
@@ -56,11 +87,7 @@ export async function aiRemoveBackground(imageSource, onProgress) {
     },
   };
 
-  const src =
-    imageSource instanceof HTMLCanvasElement
-      ? imageSource
-      : imageSource;
-
+  const src = await normalizeImageSource(imageSource);
   return removeBackground(src, config);
 }
 
