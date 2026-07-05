@@ -399,6 +399,14 @@
     if (!sourceCanvas || !maskCanvas || aiBusy) return;
     aiBusy = true;
     if (els.aiBgBtn) els.aiBgBtn.disabled = true;
+
+    if (!window.crossOriginIsolated) {
+      setAiStatus('正在启用 AI 运行环境，页面将自动刷新一次…');
+      aiBusy = false;
+      if (els.aiBgBtn) els.aiBgBtn.disabled = false;
+      return;
+    }
+
     setAiStatus('准备 AI 模型（首次约 40MB，请稍候）…');
 
     try {
@@ -444,7 +452,8 @@
       setAiStatus('AI 抠图完成，可用画笔微调');
     } catch (err) {
       console.error('AI background removal failed', err);
-      setAiStatus('AI 抠图失败：请检查网络后重试，或用四角去背/画笔');
+      const msg = err instanceof Error ? err.message : String(err);
+      setAiStatus(`AI 抠图失败：${msg.slice(0, 120)}`);
     } finally {
       aiBusy = false;
       if (els.aiBgBtn) els.aiBgBtn.disabled = false;
