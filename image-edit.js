@@ -1,17 +1,17 @@
 /**
- * 本地裁切 + 手动画蒙版（纯前端）。
+ * 本地裁切（Cropper.js）+ 手动画蒙版 + AI 抠图（纯前端）。
  * 蒙版外区域在生成前设为透明，由 drawSourceToWorkCanvas 映射为「留白背景」色。
  */
 (function () {
   const MAX_EDIT_PX = 1024;
-  const MIN_CROP = 24;
 
   /** @type {HTMLCanvasElement | null} */
   let sourceCanvas = null;
   /** @type {HTMLCanvasElement | null} */
   let maskCanvas = null;
-  /** @type {{ x: number, y: number, w: number, h: number }} */
-  let cropRect = { x: 0, y: 0, w: 0, h: 0 };
+
+  /** @type {InstanceType<typeof Cropper> | null} */
+  let cropper = null;
 
   /** @type {'crop' | 'mask'} */
   let mode = 'crop';
@@ -21,6 +21,7 @@
   /** @type {'brush' | 'wand'} */
   let maskTool = 'brush';
   let wandTolerance = 22;
+  let aiBusy = false;
 
   const MAX_UNDO = 36;
   /** @type {ImageData[]} */
@@ -29,15 +30,11 @@
   const redoStack = [];
 
   let viewScale = 1;
-  /** @type {{ x: number, y: number }} */
-  let viewOffset = { x: 0, y: 0 };
 
-  /** @type {null | { kind: string, sx: number, sy: number, rect: { x: number, y: number, w: number, h: number } }} */
-  let drag = null;
   let painting = false;
   /** @type {{ x: number, y: number } | null} */
   let lastPaintPt = null;
-  /** iOS/Android 触摸跟踪（Safari 上 pointer 事件不可靠） */
+  /** iOS/Android 触摸跟踪（蒙版模式） */
   let activeTouchId = null;
   let suppressMouseUntil = 0;
   let scrollLocked = false;
@@ -53,6 +50,8 @@
 
   const els = {
     panel: /** @type {HTMLElement | null} */ (document.getElementById('edit-panel')),
+    cropWrap: /** @type {HTMLElement | null} */ (document.getElementById('crop-wrap')),
+    cropImage: /** @type {HTMLImageElement | null} */ (document.getElementById('crop-image')),
     view: /** @type {HTMLCanvasElement | null} */ (document.getElementById('edit-view')),
     brush: /** @type {HTMLInputElement | null} */ (document.getElementById('brush-size')),
     brushVal: /** @type {HTMLElement | null} */ (document.getElementById('brush-size-val')),
@@ -69,17 +68,10 @@
     toolWand: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-tool-wand')),
     wandTol: /** @type {HTMLInputElement | null} */ (document.getElementById('wand-tolerance')),
     wandTolVal: /** @type {HTMLElement | null} */ (document.getElementById('wand-tolerance-val')),
+    aiBgBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-ai-bg')),
+    aiBgStatus: /** @type {HTMLElement | null} */ (document.getElementById('ai-bg-status')),
     autoCornerBg: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-auto-corner')),
     protectCenter: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-protect-center')),
-    cropTouchUi: /** @type {HTMLElement | null} */ (document.getElementById('crop-touch-ui')),
-    cropX: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-x')),
-    cropY: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-y')),
-    cropW: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-w')),
-    cropH: /** @type {HTMLInputElement | null} */ (document.getElementById('crop-h')),
-    cropXOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-x-out')),
-    cropYOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-y-out')),
-    cropWOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-w-out')),
-    cropHOut: /** @type {HTMLElement | null} */ (document.getElementById('crop-h-out')),
   };
 
   const viewCtx = els.view?.getContext('2d');
@@ -98,53 +90,11 @@
     onChange?.();
   }
 
-  function clampCrop() {
-    if (!sourceCanvas) return;
-    const W = sourceCanvas.width;
-    const H = sourceCanvas.height;
-    cropRect.w = Math.max(MIN_CROP, Math.min(cropRect.w, W));
-    cropRect.h = Math.max(MIN_CROP, Math.min(cropRect.h, H));
-    cropRect.x = Math.max(0, Math.min(cropRect.x, W - cropRect.w));
-    cropRect.y = Math.max(0, Math.min(cropRect.y, H - cropRect.h));
-  }
-
-  function syncCropSlidersFromRect() {
-    if (!sourceCanvas) return;
-    const W = sourceCanvas.width;
-    const H = sourceCanvas.height;
-    if (els.cropX) {
-      els.cropX.max = String(Math.max(0, W - MIN_CROP));
-      els.cropX.value = String(Math.round(cropRect.x));
-      if (els.cropXOut) els.cropXOut.textContent = els.cropX.value;
-    }
-    if (els.cropY) {
-      els.cropY.max = String(Math.max(0, H - MIN_CROP));
-      els.cropY.value = String(Math.round(cropRect.y));
-      if (els.cropYOut) els.cropYOut.textContent = els.cropY.value;
-    }
-    if (els.cropW) {
-      els.cropW.max = String(W);
-      els.cropW.value = String(Math.round(cropRect.w));
-      if (els.cropWOut) els.cropWOut.textContent = els.cropW.value;
-    }
-    if (els.cropH) {
-      els.cropH.max = String(H);
-      els.cropH.value = String(Math.round(cropRect.h));
-      if (els.cropHOut) els.cropHOut.textContent = els.cropH.value;
-    }
-  }
-
-  function applyCropSlidersToRect() {
-    if (!sourceCanvas) return;
-    const W = sourceCanvas.width;
-    const H = sourceCanvas.height;
-    if (els.cropX) cropRect.x = Number(els.cropX.value) || 0;
-    if (els.cropY) cropRect.y = Number(els.cropY.value) || 0;
-    if (els.cropW) cropRect.w = Number(els.cropW.value) || MIN_CROP;
-    if (els.cropH) cropRect.h = Number(els.cropH.value) || MIN_CROP;
-    clampCrop();
-    syncCropSlidersFromRect();
-    renderView();
+  /** @param {string} msg @param {boolean} [show] */
+  function setAiStatus(msg, show = true) {
+    if (!els.aiBgStatus) return;
+    els.aiBgStatus.textContent = msg;
+    els.aiBgStatus.classList.toggle('hidden', !show || !msg);
   }
 
   function lockPageScroll() {
@@ -161,6 +111,36 @@
     document.body.style.overflow = '';
   }
 
+  function destroyCropper() {
+    if (cropper) {
+      cropper.destroy();
+      cropper = null;
+    }
+  }
+
+  function initCropper() {
+    if (!els.cropImage || !sourceCanvas || typeof Cropper === 'undefined') return;
+    destroyCropper();
+    els.cropImage.src = sourceCanvas.toDataURL('image/png');
+    cropper = new Cropper(els.cropImage, {
+      viewMode: 1,
+      dragMode: 'move',
+      autoCropArea: 0.94,
+      responsive: true,
+      restore: false,
+      guides: true,
+      center: true,
+      highlight: true,
+      cropBoxMovable: true,
+      cropBoxResizable: true,
+      toggleDragModeOnDblclick: false,
+      zoomOnTouch: true,
+      zoomOnWheel: true,
+      movable: true,
+      scalable: true,
+    });
+  }
+
   function layoutView() {
     if (!els.view || !sourceCanvas) return;
     const wrap = els.view.parentElement;
@@ -172,8 +152,6 @@
     const dh = Math.round(sourceCanvas.height * viewScale);
     els.view.width = dw;
     els.view.height = dh;
-    viewOffset.x = 0;
-    viewOffset.y = 0;
   }
 
   function renderView() {
@@ -184,55 +162,21 @@
     viewCtx.imageSmoothingEnabled = true;
     viewCtx.drawImage(sourceCanvas, 0, 0, dw, dh);
 
-    if (mode === 'mask') {
-      const mctx = maskCanvas.getContext('2d');
-      if (mctx) {
-        const md = mctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
-        viewCtx.fillStyle = 'rgba(220, 48, 72, 0.42)';
-        for (let y = 0; y < maskCanvas.height; y++) {
-          for (let x = 0; x < maskCanvas.width; x++) {
-            const i = (y * maskCanvas.width + x) * 4;
-            if (md.data[i] < 128) {
-              const vx = Math.floor(x * viewScale);
-              const vy = Math.floor(y * viewScale);
-              const vw = Math.max(1, Math.ceil(viewScale));
-              const vh = Math.max(1, Math.ceil(viewScale));
-              viewCtx.fillRect(vx, vy, vw, vh);
-            }
+    const mctx = maskCanvas.getContext('2d');
+    if (mctx) {
+      const md = mctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+      viewCtx.fillStyle = 'rgba(220, 48, 72, 0.42)';
+      for (let y = 0; y < maskCanvas.height; y++) {
+        for (let x = 0; x < maskCanvas.width; x++) {
+          const i = (y * maskCanvas.width + x) * 4;
+          if (md.data[i] < 128) {
+            const vx = Math.floor(x * viewScale);
+            const vy = Math.floor(y * viewScale);
+            const vw = Math.max(1, Math.ceil(viewScale));
+            const vh = Math.max(1, Math.ceil(viewScale));
+            viewCtx.fillRect(vx, vy, vw, vh);
           }
         }
-      }
-    }
-
-    if (mode === 'crop') {
-      const rx = cropRect.x * viewScale;
-      const ry = cropRect.y * viewScale;
-      const rw = cropRect.w * viewScale;
-      const rh = cropRect.h * viewScale;
-      viewCtx.fillStyle = 'rgba(12, 16, 40, 0.48)';
-      viewCtx.fillRect(0, 0, dw, ry);
-      viewCtx.fillRect(0, ry + rh, dw, dh - ry - rh);
-      viewCtx.fillRect(0, ry, rx, rh);
-      viewCtx.fillRect(rx + rw, ry, dw - rx - rw, rh);
-      viewCtx.strokeStyle = '#4a69d6';
-      viewCtx.lineWidth = 2;
-      viewCtx.strokeRect(rx + 0.5, ry + 0.5, rw - 1, rh - 1);
-      const hs = isCoarsePointer ? 18 : 8;
-      const handles = [
-        [rx, ry],
-        [rx + rw, ry],
-        [rx, ry + rh],
-        [rx + rw, ry + rh],
-        [rx + rw / 2, ry],
-        [rx + rw / 2, ry + rh],
-        [rx, ry + rh / 2],
-        [rx + rw, ry + rh / 2],
-      ];
-      viewCtx.fillStyle = '#fff';
-      viewCtx.strokeStyle = '#4a69d6';
-      for (const [hx, hy] of handles) {
-        viewCtx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
-        viewCtx.strokeRect(hx - hs / 2 + 0.5, hy - hs / 2 + 0.5, hs - 1, hs - 1);
       }
     }
   }
@@ -250,64 +194,6 @@
       x: Math.max(0, Math.min(sourceCanvas.width - 1, nx * sourceCanvas.width)),
       y: Math.max(0, Math.min(sourceCanvas.height - 1, ny * sourceCanvas.height)),
     };
-  }
-
-  /**
-   * 裁切命中：角点 + 四边宽带（触屏更易点中）
-   * @param {number} clientX
-   * @param {number} clientY
-   */
-  function hitCropHandle(clientX, clientY) {
-    if (!els.view || !sourceCanvas) return null;
-    const rect = els.view.getBoundingClientRect();
-    const slopPx = isCoarsePointer ? 44 : 14;
-    const edgePx = isCoarsePointer ? 32 : 12;
-    const r = cropRect;
-    const W = sourceCanvas.width;
-    const H = sourceCanvas.height;
-
-    /** @param {number} sx @param {number} sy */
-    function toScreen(sx, sy) {
-      return {
-        x: rect.left + (sx / W) * rect.width,
-        y: rect.top + (sy / H) * rect.height,
-      };
-    }
-
-    const corners = [
-      ['nw', r.x, r.y],
-      ['ne', r.x + r.w, r.y],
-      ['sw', r.x, r.y + r.h],
-      ['se', r.x + r.w, r.y + r.h],
-    ];
-    for (const [k, hx, hy] of corners) {
-      const sc = toScreen(hx, hy);
-      if (Math.hypot(clientX - sc.x, clientY - sc.y) <= slopPx) return k;
-    }
-
-    const tl = toScreen(r.x, r.y);
-    const br = toScreen(r.x + r.w, r.y + r.h);
-    const x1 = tl.x;
-    const y1 = tl.y;
-    const x2 = br.x;
-    const y2 = br.y;
-
-    if (clientY >= y1 - edgePx && clientY <= y1 + edgePx && clientX >= x1 - slopPx && clientX <= x2 + slopPx) {
-      return 'n';
-    }
-    if (clientY >= y2 - edgePx && clientY <= y2 + edgePx && clientX >= x1 - slopPx && clientX <= x2 + slopPx) {
-      return 's';
-    }
-    if (clientX >= x1 - edgePx && clientX <= x1 + edgePx && clientY >= y1 - slopPx && clientY <= y2 + slopPx) {
-      return 'w';
-    }
-    if (clientX >= x2 - edgePx && clientX <= x2 + edgePx && clientY >= y1 - slopPx && clientY <= y2 + slopPx) {
-      return 'e';
-    }
-
-    const pt = clientXYToSource(clientX, clientY);
-    if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return 'move';
-    return null;
   }
 
   /** @param {number} sx @param {number} sy */
@@ -349,11 +235,21 @@
     document.querySelectorAll('.edit-crop-only').forEach((n) => {
       n.classList.toggle('hidden', mode !== 'crop');
     });
-    if (els.cropTouchUi) {
-      els.cropTouchUi.classList.toggle('hidden', mode !== 'crop' || !isCoarsePointer);
+
+    if (mode === 'crop') {
+      setAiStatus('', false);
+      els.cropWrap?.classList.remove('hidden');
+      els.view?.classList.add('hidden');
+      initCropper();
+    } else {
+      destroyCropper();
+      els.cropWrap?.classList.add('hidden');
+      els.view?.classList.remove('hidden');
+      layoutView();
+      renderView();
     }
-    if (els.view) els.view.style.cursor = mode === 'mask' && maskTool === 'wand' ? 'cell' : 'crosshair';
-    renderView();
+
+    if (els.view) els.view.style.cursor = maskTool === 'wand' ? 'cell' : 'crosshair';
   }
 
   function setMaskTool(tool) {
@@ -371,14 +267,23 @@
 
   function applyCrop() {
     if (!sourceCanvas || !maskCanvas) return;
-    clampCrop();
-    const { x, y, w, h } = cropRect;
+    let cropped = /** @type {HTMLCanvasElement | null} */ (null);
+    if (cropper && typeof Cropper !== 'undefined') {
+      cropped = cropper.getCroppedCanvas({
+        maxWidth: MAX_EDIT_PX,
+        maxHeight: MAX_EDIT_PX,
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: 'high',
+      });
+    }
+    if (!cropped || cropped.width < 1 || cropped.height < 1) return;
+
     const next = document.createElement('canvas');
-    next.width = Math.round(w);
-    next.height = Math.round(h);
+    next.width = cropped.width;
+    next.height = cropped.height;
     const nx = next.getContext('2d');
     if (!nx) return;
-    nx.drawImage(sourceCanvas, x, y, w, h, 0, 0, w, h);
+    nx.drawImage(cropped, 0, 0);
     sourceCanvas = next;
 
     const nm = document.createElement('canvas');
@@ -391,13 +296,10 @@
     }
     maskCanvas = nm;
 
-    cropRect = { x: 0, y: 0, w: next.width, h: next.height };
     undoStack.length = 0;
     redoStack.length = 0;
     updateUndoButtons();
-    syncCropSlidersFromRect();
-    layoutView();
-    renderView();
+    initCropper();
     notifyChangeImmediate();
   }
 
@@ -491,6 +393,63 @@
     mctx.putImageData(md, 0, 0);
     renderView();
     notifyChangeImmediate();
+  }
+
+  async function applyAiBgToMask() {
+    if (!sourceCanvas || !maskCanvas || aiBusy) return;
+    aiBusy = true;
+    if (els.aiBgBtn) els.aiBgBtn.disabled = true;
+    setAiStatus('准备 AI 模型（首次约 40MB，请稍候）…');
+
+    try {
+      if (mode === 'crop') setMode('mask');
+      const { aiRemoveBackground } = await import('./ai-bg-remove.js');
+      const blob = await aiRemoveBackground(sourceCanvas, (key, cur, total) => {
+        if (total > 0) {
+          setAiStatus(`下载 ${key}… ${Math.min(100, Math.round((100 * cur) / total))}%`);
+        } else {
+          setAiStatus('AI 抠图中…');
+        }
+      });
+
+      setAiStatus('写入蒙版…');
+      pushUndo();
+
+      const bmp = await createImageBitmap(blob);
+      const tw = sourceCanvas.width;
+      const th = sourceCanvas.height;
+      const temp = document.createElement('canvas');
+      temp.width = tw;
+      temp.height = th;
+      const tctx = temp.getContext('2d');
+      if (!tctx) throw new Error('canvas');
+      tctx.drawImage(bmp, 0, 0, tw, th);
+      if (typeof bmp.close === 'function') bmp.close();
+
+      const alphaImg = tctx.getImageData(0, 0, tw, th);
+      const mctx = maskCanvas.getContext('2d');
+      if (!mctx) return;
+      const md = mctx.getImageData(0, 0, tw, th);
+
+      for (let i = 0; i < md.data.length; i += 4) {
+        const a = alphaImg.data[i + 3];
+        const v = a >= 96 ? 255 : 0;
+        md.data[i] = v;
+        md.data[i + 1] = v;
+        md.data[i + 2] = v;
+      }
+      mctx.putImageData(md, 0, 0);
+      renderView();
+      notifyChangeImmediate();
+      setAiStatus('AI 抠图完成，可用画笔微调');
+    } catch (err) {
+      console.error('AI background removal failed', err);
+      setAiStatus('AI 抠图失败：请检查网络后重试，或用四角去背/画笔');
+    } finally {
+      aiBusy = false;
+      if (els.aiBgBtn) els.aiBgBtn.disabled = false;
+      updateUndoButtons();
+    }
   }
 
   function protectCenterMask() {
@@ -597,28 +556,23 @@
     maskCanvas.height = h;
     fillMask(true);
 
-    cropRect = { x: 0, y: 0, w, h };
-    mode = 'crop';
-    setMode('crop');
-
     undoStack.length = 0;
     redoStack.length = 0;
     updateUndoButtons();
     setMaskTool('brush');
-
-    syncCropSlidersFromRect();
-    if (isCoarsePointer) document.documentElement.classList.add('coarse-ui');
+    setAiStatus('', false);
 
     if (els.panel) els.panel.hidden = false;
-    layoutView();
-    renderView();
+    setMode('crop');
   }
 
   function reset() {
+    destroyCropper();
     sourceCanvas = null;
     maskCanvas = null;
     undoStack.length = 0;
     redoStack.length = 0;
+    setAiStatus('', false);
     if (els.panel) els.panel.hidden = true;
     onChange = null;
   }
@@ -656,24 +610,16 @@
    * @param {number} clientY
    */
   function beginInteraction(clientX, clientY) {
-    if (!sourceCanvas || !els.view) return;
+    if (!sourceCanvas || !els.view || mode !== 'mask') return;
     const pt = clientXYToSource(clientX, clientY);
-    if (mode === 'mask') {
-      if (maskTool === 'wand') {
-        magicWandAt(pt.x, pt.y);
-        return;
-      }
-      pushUndo();
-      painting = true;
-      lastPaintPt = null;
-      paintMask(pt.x, pt.y);
+    if (maskTool === 'wand') {
+      magicWandAt(pt.x, pt.y);
       return;
     }
-    const hit = hitCropHandle(clientX, clientY);
-    if (hit) {
-      drag = { kind: hit, sx: pt.x, sy: pt.y, rect: { ...cropRect } };
-      lockPageScroll();
-    }
+    pushUndo();
+    painting = true;
+    lastPaintPt = null;
+    paintMask(pt.x, pt.y);
   }
 
   /**
@@ -681,37 +627,9 @@
    * @param {number} clientY
    */
   function moveInteraction(clientX, clientY) {
-    if (!sourceCanvas || (!drag && !painting)) return;
+    if (!sourceCanvas || !painting || mode !== 'mask') return;
     const pt = clientXYToSource(clientX, clientY);
-    if (painting && mode === 'mask') {
-      paintMask(pt.x, pt.y);
-      return;
-    }
-    if (!drag) return;
-    const dx = pt.x - drag.sx;
-    const dy = pt.y - drag.sy;
-    const r0 = drag.rect;
-    let { x, y, w, h } = { ...r0 };
-
-    if (drag.kind === 'move') {
-      x = r0.x + dx;
-      y = r0.y + dy;
-    } else {
-      if (drag.kind.includes('e')) w = r0.w + dx;
-      if (drag.kind.includes('w')) {
-        w = r0.w - dx;
-        x = r0.x + dx;
-      }
-      if (drag.kind.includes('s')) h = r0.h + dy;
-      if (drag.kind.includes('n')) {
-        h = r0.h - dy;
-        y = r0.y + dy;
-      }
-    }
-    cropRect = { x, y, w, h };
-    clampCrop();
-    syncCropSlidersFromRect();
-    renderView();
+    paintMask(pt.x, pt.y);
   }
 
   function endInteraction() {
@@ -719,10 +637,6 @@
     if (painting) {
       painting = false;
       lastPaintPt = null;
-      notifyChangeImmediate();
-    }
-    if (drag) {
-      drag = null;
       notifyChangeImmediate();
     }
   }
@@ -737,7 +651,7 @@
 
   /** @param {TouchEvent} e */
   function onTouchStart(e) {
-    if (!els.view || activeTouchId !== null) return;
+    if (!els.view || activeTouchId !== null || mode !== 'mask') return;
     const t = e.changedTouches[0];
     if (!t) return;
     const rect = els.view.getBoundingClientRect();
@@ -752,15 +666,16 @@
     activeTouchId = t.identifier;
     suppressMouseUntil = Date.now() + 900;
     e.preventDefault();
+    lockPageScroll();
     beginInteraction(t.clientX, t.clientY);
   }
 
   /** @param {TouchEvent} e */
   function onTouchMove(e) {
-    if (activeTouchId === null) return;
+    if (activeTouchId === null || mode !== 'mask') return;
     const t = findTouch(e.touches, activeTouchId) || findTouch(e.changedTouches, activeTouchId);
     if (!t) return;
-    if (drag || painting) e.preventDefault();
+    if (painting) e.preventDefault();
     moveInteraction(t.clientX, t.clientY);
   }
 
@@ -779,7 +694,7 @@
 
   /** @param {PointerEvent} ev */
   function onPointerDown(ev) {
-    if (!els.view) return;
+    if (!els.view || mode !== 'mask') return;
     if (Date.now() < suppressMouseUntil) return;
     if (ev.pointerType === 'touch') return;
     if (ev.pointerType === 'mouse' && ev.button !== 0) return;
@@ -794,9 +709,9 @@
 
   /** @param {PointerEvent} ev */
   function onPointerMove(ev) {
-    if (!drag && !painting) return;
+    if (!painting || mode !== 'mask') return;
     if (ev.pointerType === 'touch') return;
-    if (drag || painting) ev.preventDefault();
+    if (painting) ev.preventDefault();
     moveInteraction(ev.clientX, ev.clientY);
   }
 
@@ -848,20 +763,15 @@
       if (els.brushVal) els.brushVal.textContent = String(brushSize);
     });
     els.applyCrop?.addEventListener('click', applyCrop);
-    for (const id of ['crop-x', 'crop-y', 'crop-w', 'crop-h']) {
-      const inp = document.getElementById(id);
-      if (!inp) continue;
-      inp.addEventListener('input', () => {
-        applyCropSlidersToRect();
-        notifyChange();
-      });
-    }
     els.maskFill?.addEventListener('click', () => fillMask(true));
     els.maskClear?.addEventListener('click', () => fillMask(false));
     els.maskUndo?.addEventListener('click', undoMask);
     els.maskRedo?.addEventListener('click', redoMask);
     els.toolBrush?.addEventListener('click', () => setMaskTool('brush'));
     els.toolWand?.addEventListener('click', () => setMaskTool('wand'));
+    els.aiBgBtn?.addEventListener('click', () => {
+      void applyAiBgToMask();
+    });
     els.autoCornerBg?.addEventListener('click', () => {
       const thrInp = document.getElementById('bg-rm-sensitive');
       const thr = thrInp ? Number(/** @type {HTMLInputElement} */ (thrInp).value) : 600;
@@ -884,8 +794,10 @@
 
     window.addEventListener('resize', () => {
       if (!sourceCanvas) return;
-      layoutView();
-      renderView();
+      if (mode === 'mask') {
+        layoutView();
+        renderView();
+      }
     });
 
     if (els.brush) {
