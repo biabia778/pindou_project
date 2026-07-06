@@ -658,6 +658,45 @@ code {
 
 .edit-style-toolbar {
   margin-bottom: 0.45rem;
+  align-items: center;
+}
+
+.edit-style-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #3d4a72;
+}
+
+.edit-style-select {
+  padding: 0.32rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(74, 105, 214, 0.28);
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #2c3454;
+  cursor: pointer;
+}
+
+.edit-file-hint {
+  margin: 0 0 0.55rem;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.edit-file-hint code {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  background: rgba(74, 105, 214, 0.08);
+}
+
+.edit-file-hint a {
+  color: #4a69d6;
+  font-weight: 600;
 }
 
 .edit-ai-status {

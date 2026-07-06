@@ -4,7 +4,7 @@
  */
 (function () {
   const MAX_EDIT_PX = 1024;
-  const MODULE_V = '4';
+  const MODULE_V = '10';
 
   /** @type {HTMLCanvasElement | null} */
   let sourceCanvas = null;
@@ -78,6 +78,7 @@
     aiBgBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-ai-bg')),
     editAiStatus: /** @type {HTMLElement | null} */ (document.getElementById('edit-ai-status')),
     aiCartoonBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('ai-cartoon')),
+    cartoonStyle: /** @type {HTMLSelectElement | null} */ (document.getElementById('cartoon-style')),
     fastCartoonBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('fast-cartoon')),
     sourceUndoBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('source-undo')),
     sourceRedoBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('source-redo')),
@@ -510,22 +511,50 @@
     }
   }
 
+  function updateCartoonStyleOptions() {
+    const faceOpt = els.cartoonStyle?.querySelector('option[value="faceportrait"]');
+    const hint = document.getElementById('file-protocol-hint');
+    const onFile = location.protocol === 'file:';
+    if (faceOpt) {
+      faceOpt.disabled = onFile;
+      faceOpt.textContent = onFile
+        ? '动漫人像（需 http:// 打开）'
+        : '动漫人像 · 人像最佳（约 8MB）';
+    }
+    if (onFile && els.cartoonStyle?.value === 'faceportrait') {
+      els.cartoonStyle.value = 'cartoongan';
+    }
+    if (hint) hint.classList.toggle('hidden', !onFile);
+  }
+
   async function applyAiCartoon() {
     if (!sourceCanvas || aiBusy) return;
+    const style = /** @type {'cartoongan'|'hayao'|'faceportrait'} */ (
+      els.cartoonStyle?.value || 'cartoongan'
+    );
+    if (style === 'faceportrait' && location.protocol === 'file:') {
+      setEditStatus(
+        '「动漫人像」在 Safari file:// 下不可用。请用 python3 -m http.server 8765 后打开 http://127.0.0.1:8765',
+      );
+      return;
+    }
     aiBusy = true;
     if (els.fastCartoonBtn) els.fastCartoonBtn.disabled = true;
     if (els.aiCartoonBtn) els.aiCartoonBtn.disabled = true;
-    setEditStatus('准备 AI 卡通模型（首次约 1.5MB）…');
+    setEditStatus('准备 AI 卡通模型…');
     try {
-      const { aiCartoonize } = await import(`./ai-cartoon.js?v=${MODULE_V}`);
+      const mod = window.pindouAiCartoon;
+      if (!mod?.aiCartoonizeStyle) {
+        throw new Error('AI 卡通模块未加载，请刷新页面');
+      }
       pushSourceUndo();
-      const out = await aiCartoonize(sourceCanvas, (msg) => setEditStatus(msg));
+      const out = await mod.aiCartoonizeStyle(sourceCanvas, style, (msg) => setEditStatus(msg));
       replaceSourceCanvas(out);
       setEditStatus('AI 卡通完成，可撤销原图或继续抠图');
     } catch (err) {
       console.error('AI cartoon failed', err);
       const msg = err instanceof Error ? err.message : String(err);
-      setEditStatus(`AI 卡通失败：${msg.slice(0, 120)}`);
+      setEditStatus(`AI 卡通失败：${msg.slice(0, 140)}`);
       if (sourceUndoStack.length) sourceUndoStack.pop();
       updateSourceUndoButtons();
     } finally {
@@ -999,6 +1028,7 @@
     }
     els.brushKeep?.classList.add('active');
     setMaskTool('brush');
+    updateCartoonStyleOptions();
     updateUndoButtons();
     updateSourceUndoButtons();
   }

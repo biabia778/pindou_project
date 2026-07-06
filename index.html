@@ -5,33 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>拼豆像素图 · Mard 色卡</title>
     <script>
-      window.coi = { coepCredentialless: () => true };
+      if (location.protocol !== 'file:') {
+        window.coi = { coepCredentialless: () => true };
+      }
     </script>
     <script>
-      (function () {
-        var V = '4';
-        var key = 'pindou-app-v';
-        try {
-          if (sessionStorage.getItem(key) !== V) {
-            sessionStorage.setItem(key, V);
-            var reload = function () { location.reload(); };
-            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
-              navigator.serviceWorker.getRegistrations().then(function (regs) {
-                Promise.all(regs.map(function (r) { return r.unregister(); })).then(reload);
-              }, reload);
-            } else {
-              reload();
+      if (location.protocol !== 'file:') {
+        (function () {
+          var V = '5';
+          var key = 'pindou-app-v';
+          try {
+            if (sessionStorage.getItem(key) !== V) {
+              sessionStorage.setItem(key, V);
+              var reload = function () { location.reload(); };
+              if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+                navigator.serviceWorker.getRegistrations().then(function (regs) {
+                  Promise.all(regs.map(function (r) { return r.unregister(); })).then(reload);
+                }, reload);
+              } else {
+                reload();
+              }
             }
-          }
-        } catch (e) {}
-      })();
+          } catch (e) {}
+        })();
+      }
     </script>
-    <script src="./coi-serviceworker.min.js?v=4"></script>
+    <script>
+      if (location.protocol !== 'file:') {
+        document.write('<script src="./coi-serviceworker.min.js?v=5"><\/script>');
+      }
+    </script>
     <script type="importmap">
       {
         "imports": {
           "onnxruntime-web": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.bundle.min.mjs",
-          "onnxruntime-web/webgpu": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.webgpu.bundle.min.mjs"
+          "onnxruntime-web/webgpu": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.webgpu.bundle.min.mjs",
+          "@tensorflow/tfjs": "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/+esm",
+          "@tensorflow/tfjs-backend-wasm": "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/+esm"
         }
       }
     </script>
@@ -85,11 +95,24 @@
             裁切 → 卡通化（AI / 快速）→ 蒙版抠图；全流程本地处理，不上传服务器。
           </p>
           <div class="edit-toolbar edit-style-toolbar">
-            <button id="ai-cartoon" type="button" class="edit-action">AI 智能转卡通</button>
+            <label class="edit-style-label">
+              卡通风格
+              <select id="cartoon-style" class="edit-style-select">
+                <option value="cartoongan">插画卡通（约 1.5MB）</option>
+                <option value="hayao">宫崎骏风（约 16MB）</option>
+                <option value="faceportrait">动漫人像 · 人像最佳（约 8MB）</option>
+              </select>
+            </label>
+            <button id="ai-cartoon" type="button" class="edit-action">AI 卡通化</button>
             <button id="fast-cartoon" type="button" class="edit-action ghost">快速卡通</button>
             <button id="source-undo" type="button" class="edit-action ghost" disabled>撤销原图</button>
             <button id="source-redo" type="button" class="edit-action ghost" disabled>重做原图</button>
           </div>
+          <p id="file-protocol-hint" class="hint edit-file-hint hidden">
+            「动漫人像」在 Safari 的 file:// 下不可用。请在项目目录运行
+            <code>python3 -m http.server 8765</code>，再打开
+            <a href="http://127.0.0.1:8765">http://127.0.0.1:8765</a>。
+          </p>
           <p id="edit-ai-status" class="edit-ai-status hidden" aria-live="polite"></p>
           <div class="edit-toolbar">
             <button id="edit-mode-crop" type="button" class="edit-tab active">裁剪</button>
@@ -217,6 +240,37 @@
       </section>
     </main>
 
+    <script src="./vendor/tf.min.js"></script>
+    <script src="./vendor/tf-backend-wasm.min.js"></script>
+    <script src="./vendor/ort.wasm.min.js"></script>
+    <script>
+      void (function initAiRuntimes() {
+        function scriptDir(match) {
+          var el = document.querySelector('script[src*="' + match + '"]');
+          if (!el || !el.src) return null;
+          return el.src.replace(/[^/?#]+$/, '');
+        }
+        var vendorDir = scriptDir('vendor/ort.wasm.min.js') || scriptDir('vendor/ort.min.js');
+        if (!vendorDir) {
+          var base = location.href.replace(/[^/]+$/, '');
+          vendorDir = base + 'vendor/';
+        }
+        window.PINDOU_VENDOR_BASE = vendorDir;
+
+        var tf = window.tf;
+        if (tf && tf.wasm && tf.wasm.setWasmPaths) {
+          tf.wasm.setWasmPaths(vendorDir);
+        }
+        var ort = window.ort;
+        if (ort && ort.env && ort.env.wasm) {
+          ort.env.wasm.wasmPaths = vendorDir;
+          ort.env.wasm.numThreads = 1;
+          ort.env.wasm.simd = true;
+          ort.env.wasm.proxy = false;
+        }
+      })();
+    </script>
+    <script src="./ai-cartoon-styles.js?v=11"></script>
     <script src="./palette-data.js"></script>
     <script src="./color.js"></script>
     <script src="./subject-bg.js"></script>
@@ -225,8 +279,8 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
-    <script src="./image-edit.js?v=4"></script>
-    <script src="./app.js?v=4"></script>
+    <script src="./image-edit.js?v=11"></script>
+    <script src="./app.js?v=11"></script>
     <script>
       void (function bindRangeOutputs() {
         [['bg-rm-sensitive', 'bg-rm-sensitive-val']].forEach(([id, oid]) => {
