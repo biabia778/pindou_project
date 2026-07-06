@@ -115,13 +115,13 @@ export async function aiCartoonize(sourceCanvas, onProgress) {
   await tf.browser.toPixels(result, temp);
   result.dispose();
 
-  const result = document.createElement('canvas');
-  result.width = origW;
-  result.height = origH;
-  const ctx = result.getContext('2d');
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = origW;
+  outCanvas.height = origH;
+  const ctx = outCanvas.getContext('2d');
   if (!ctx) throw new Error('无法创建画布');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(temp, 0, 0, origW, origH);
-  return result;
+  return outCanvas;
 }
