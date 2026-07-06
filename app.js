@@ -727,6 +727,15 @@ function syncRemoveBgSensitivityRow() {
 }
 
 /**
+ * @param {File | undefined | null} file
+ */
+function isImageFile(file) {
+  if (!file) return false;
+  if (file.type && file.type.startsWith('image/')) return true;
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|avif)$/i.test(file.name || '');
+}
+
+/**
  * @param {File} file
  */
 function loadImageFile(file) {
@@ -770,7 +779,7 @@ function wireUi() {
 
   els.file.addEventListener('change', (e) => {
     const file = /** @type {HTMLInputElement} */ (e.target).files?.[0];
-    if (file?.type.startsWith('image/')) loadImageFile(file);
+    if (isImageFile(file)) loadImageFile(file);
   });
 
   ['dragenter', 'dragover'].forEach((ev) =>
@@ -785,7 +794,7 @@ function wireUi() {
     e.preventDefault();
     els.drop.classList.remove('drag');
     const file = e.dataTransfer?.files?.[0];
-    if (file?.type.startsWith('image/')) loadImageFile(file);
+    if (isImageFile(file)) loadImageFile(file);
   });
 
   els.width.addEventListener('input', () => {

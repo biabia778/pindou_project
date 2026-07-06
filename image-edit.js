@@ -24,6 +24,7 @@
   let aiBusy = false;
 
   const MAX_SOURCE_UNDO = 12;
+  const MAX_UNDO = 36;
   /** @type {HTMLCanvasElement[]} */
   const sourceUndoStack = [];
   /** @type {HTMLCanvasElement[]} */
@@ -129,24 +130,33 @@
   function initCropper() {
     if (!els.cropImage || !sourceCanvas || typeof Cropper === 'undefined') return;
     destroyCropper();
-    els.cropImage.src = sourceCanvas.toDataURL('image/png');
-    cropper = new Cropper(els.cropImage, {
-      viewMode: 1,
-      dragMode: 'move',
-      autoCropArea: 0.94,
-      responsive: true,
-      restore: false,
-      guides: true,
-      center: true,
-      highlight: true,
-      cropBoxMovable: true,
-      cropBoxResizable: true,
-      toggleDragModeOnDblclick: false,
-      zoomOnTouch: true,
-      zoomOnWheel: true,
-      movable: true,
-      scalable: true,
-    });
+    const dataUrl = sourceCanvas.toDataURL('image/png');
+    const boot = () => {
+      if (!els.cropImage || !sourceCanvas) return;
+      cropper = new Cropper(els.cropImage, {
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 0.94,
+        responsive: true,
+        restore: false,
+        guides: true,
+        center: true,
+        highlight: true,
+        cropBoxMovable: true,
+        cropBoxResizable: true,
+        toggleDragModeOnDblclick: false,
+        zoomOnTouch: true,
+        zoomOnWheel: true,
+        movable: true,
+        scalable: true,
+      });
+    };
+    els.cropImage.onload = () => boot();
+    els.cropImage.onerror = () => {
+      console.error('Cropper preview image failed to load');
+    };
+    els.cropImage.src = dataUrl;
+    if (els.cropImage.complete && els.cropImage.naturalWidth > 0) boot();
   }
 
   function layoutView() {
@@ -364,9 +374,9 @@
     notifyChangeImmediate();
   }
 
-  function fillMask(v) {
+  function fillMask(v, opts) {
     if (!maskCanvas) return;
-    pushUndo();
+    if (!opts?.skipUndo) pushUndo();
     const mctx = maskCanvas.getContext('2d');
     if (!mctx) return;
     mctx.fillStyle = v ? '#ffffff' : '#000000';
@@ -680,7 +690,7 @@
     maskCanvas = document.createElement('canvas');
     maskCanvas.width = w;
     maskCanvas.height = h;
-    fillMask(true);
+    fillMask(true, { skipUndo: true });
 
     undoStack.length = 0;
     redoStack.length = 0;
