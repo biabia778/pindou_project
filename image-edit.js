@@ -23,7 +23,11 @@
   let wandTolerance = 22;
   let aiBusy = false;
 
-  const MAX_UNDO = 36;
+  const MAX_SOURCE_UNDO = 12;
+  /** @type {HTMLCanvasElement[]} */
+  const sourceUndoStack = [];
+  /** @type {HTMLCanvasElement[]} */
+  const sourceRedoStack = [];
   /** @type {ImageData[]} */
   const undoStack = [];
   /** @type {ImageData[]} */
@@ -69,7 +73,11 @@
     wandTol: /** @type {HTMLInputElement | null} */ (document.getElementById('wand-tolerance')),
     wandTolVal: /** @type {HTMLElement | null} */ (document.getElementById('wand-tolerance-val')),
     aiBgBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-ai-bg')),
-    aiBgStatus: /** @type {HTMLElement | null} */ (document.getElementById('ai-bg-status')),
+    editAiStatus: /** @type {HTMLElement | null} */ (document.getElementById('edit-ai-status')),
+    aiCartoonBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('ai-cartoon')),
+    fastCartoonBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('fast-cartoon')),
+    sourceUndoBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('source-undo')),
+    sourceRedoBtn: /** @type {HTMLButtonElement | null} */ (document.getElementById('source-redo')),
     autoCornerBg: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-auto-corner')),
     protectCenter: /** @type {HTMLButtonElement | null} */ (document.getElementById('mask-protect-center')),
   };
@@ -91,10 +99,10 @@
   }
 
   /** @param {string} msg @param {boolean} [show] */
-  function setAiStatus(msg, show = true) {
-    if (!els.aiBgStatus) return;
-    els.aiBgStatus.textContent = msg;
-    els.aiBgStatus.classList.toggle('hidden', !show || !msg);
+  function setEditStatus(msg, show = true) {
+    if (!els.editAiStatus) return;
+    els.editAiStatus.textContent = msg;
+    els.editAiStatus.classList.toggle('hidden', !show || !msg);
   }
 
   function lockPageScroll() {
@@ -237,7 +245,7 @@
     });
 
     if (mode === 'crop') {
-      setAiStatus('', false);
+      setEditStatus('', false);
       els.cropWrap?.classList.remove('hidden');
       els.view?.classList.add('hidden');
       initCropper();
@@ -298,7 +306,10 @@
 
     undoStack.length = 0;
     redoStack.length = 0;
+    sourceUndoStack.length = 0;
+    sourceRedoStack.length = 0;
     updateUndoButtons();
+    updateSourceUndoButtons();
     initCropper();
     notifyChangeImmediate();
   }
@@ -395,32 +406,138 @@
     notifyChangeImmediate();
   }
 
+  function captureSourceCanvas() {
+    if (!sourceCanvas) return null;
+    const snap = document.createElement('canvas');
+    snap.width = sourceCanvas.width;
+    snap.height = sourceCanvas.height;
+    const ctx = snap.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(sourceCanvas, 0, 0);
+    return snap;
+  }
+
+  function updateSourceUndoButtons() {
+    if (els.sourceUndoBtn) els.sourceUndoBtn.disabled = sourceUndoStack.length === 0;
+    if (els.sourceRedoBtn) els.sourceRedoBtn.disabled = sourceRedoStack.length === 0;
+  }
+
+  function pushSourceUndo() {
+    const snap = captureSourceCanvas();
+    if (!snap) return;
+    sourceUndoStack.push(snap);
+    if (sourceUndoStack.length > MAX_SOURCE_UNDO) sourceUndoStack.shift();
+    sourceRedoStack.length = 0;
+    updateSourceUndoButtons();
+  }
+
+  /** @param {HTMLCanvasElement} next */
+  function replaceSourceCanvas(next) {
+    if (!sourceCanvas || !maskCanvas) return;
+    sourceCanvas = next;
+    if (mode === 'crop') {
+      initCropper();
+    } else {
+      layoutView();
+      renderView();
+    }
+    notifyChangeImmediate();
+  }
+
+  function undoSource() {
+    if (!sourceCanvas || sourceUndoStack.length === 0) return;
+    const cur = captureSourceCanvas();
+    if (cur) sourceRedoStack.push(cur);
+    const prev = sourceUndoStack.pop();
+    replaceSourceCanvas(prev);
+    updateSourceUndoButtons();
+  }
+
+  function redoSource() {
+    if (!sourceCanvas || sourceRedoStack.length === 0) return;
+    const cur = captureSourceCanvas();
+    if (cur) sourceUndoStack.push(cur);
+    const next = sourceRedoStack.pop();
+    replaceSourceCanvas(next);
+    updateSourceUndoButtons();
+  }
+
+  async function applyFastCartoon() {
+    if (!sourceCanvas || aiBusy) return;
+    aiBusy = true;
+    if (els.fastCartoonBtn) els.fastCartoonBtn.disabled = true;
+    if (els.aiCartoonBtn) els.aiCartoonBtn.disabled = true;
+    setEditStatus('快速卡通处理中…');
+    try {
+      const { fastCartoonize } = await import('./fast-cartoon.js');
+      pushSourceUndo();
+      const out = fastCartoonize(sourceCanvas);
+      replaceSourceCanvas(out);
+      setEditStatus('快速卡通完成，可撤销原图或继续抠图');
+    } catch (err) {
+      console.error('Fast cartoon failed', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setEditStatus(`快速卡通失败：${msg.slice(0, 120)}`);
+      if (sourceUndoStack.length) sourceUndoStack.pop();
+      updateSourceUndoButtons();
+    } finally {
+      aiBusy = false;
+      if (els.fastCartoonBtn) els.fastCartoonBtn.disabled = false;
+      if (els.aiCartoonBtn) els.aiCartoonBtn.disabled = false;
+    }
+  }
+
+  async function applyAiCartoon() {
+    if (!sourceCanvas || aiBusy) return;
+    aiBusy = true;
+    if (els.fastCartoonBtn) els.fastCartoonBtn.disabled = true;
+    if (els.aiCartoonBtn) els.aiCartoonBtn.disabled = true;
+    setEditStatus('准备 AI 卡通模型（首次约 1.5MB）…');
+    try {
+      const { aiCartoonize } = await import('./ai-cartoon.js');
+      pushSourceUndo();
+      const out = await aiCartoonize(sourceCanvas, (msg) => setEditStatus(msg));
+      replaceSourceCanvas(out);
+      setEditStatus('AI 卡通完成，可撤销原图或继续抠图');
+    } catch (err) {
+      console.error('AI cartoon failed', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setEditStatus(`AI 卡通失败：${msg.slice(0, 120)}`);
+      if (sourceUndoStack.length) sourceUndoStack.pop();
+      updateSourceUndoButtons();
+    } finally {
+      aiBusy = false;
+      if (els.fastCartoonBtn) els.fastCartoonBtn.disabled = false;
+      if (els.aiCartoonBtn) els.aiCartoonBtn.disabled = false;
+    }
+  }
+
   async function applyAiBgToMask() {
     if (!sourceCanvas || !maskCanvas || aiBusy) return;
     aiBusy = true;
     if (els.aiBgBtn) els.aiBgBtn.disabled = true;
 
     if (!window.crossOriginIsolated) {
-      setAiStatus('正在启用 AI 运行环境，页面将自动刷新一次…');
+      setEditStatus('正在启用 AI 运行环境，页面将自动刷新一次…');
       aiBusy = false;
       if (els.aiBgBtn) els.aiBgBtn.disabled = false;
       return;
     }
 
-    setAiStatus('准备 AI 模型（首次约 40MB，请稍候）…');
+    setEditStatus('准备 AI 模型（首次约 40MB，请稍候）…');
 
     try {
       if (mode === 'crop') setMode('mask');
       const { aiRemoveBackground } = await import('./ai-bg-remove.js');
       const blob = await aiRemoveBackground(sourceCanvas, (key, cur, total) => {
         if (total > 0) {
-          setAiStatus(`下载 ${key}… ${Math.min(100, Math.round((100 * cur) / total))}%`);
+          setEditStatus(`下载 ${key}… ${Math.min(100, Math.round((100 * cur) / total))}%`);
         } else {
-          setAiStatus('AI 抠图中…');
+          setEditStatus('AI 抠图中…');
         }
       });
 
-      setAiStatus('写入蒙版…');
+      setEditStatus('写入蒙版…');
       pushUndo();
 
       const bmp = await createImageBitmap(blob);
@@ -449,11 +566,11 @@
       mctx.putImageData(md, 0, 0);
       renderView();
       notifyChangeImmediate();
-      setAiStatus('AI 抠图完成，可用画笔微调');
+      setEditStatus('AI 抠图完成，可用画笔微调');
     } catch (err) {
       console.error('AI background removal failed', err);
       const msg = err instanceof Error ? err.message : String(err);
-      setAiStatus(`AI 抠图失败：${msg.slice(0, 120)}`);
+      setEditStatus(`AI 抠图失败：${msg.slice(0, 120)}`);
     } finally {
       aiBusy = false;
       if (els.aiBgBtn) els.aiBgBtn.disabled = false;
@@ -567,9 +684,12 @@
 
     undoStack.length = 0;
     redoStack.length = 0;
+    sourceUndoStack.length = 0;
+    sourceRedoStack.length = 0;
     updateUndoButtons();
+    updateSourceUndoButtons();
     setMaskTool('brush');
-    setAiStatus('', false);
+    setEditStatus('', false);
 
     if (els.panel) els.panel.hidden = false;
     setMode('crop');
@@ -581,7 +701,9 @@
     maskCanvas = null;
     undoStack.length = 0;
     redoStack.length = 0;
-    setAiStatus('', false);
+    sourceUndoStack.length = 0;
+    sourceRedoStack.length = 0;
+    setEditStatus('', false);
     if (els.panel) els.panel.hidden = true;
     onChange = null;
   }
@@ -781,6 +903,14 @@
     els.aiBgBtn?.addEventListener('click', () => {
       void applyAiBgToMask();
     });
+    els.aiCartoonBtn?.addEventListener('click', () => {
+      void applyAiCartoon();
+    });
+    els.fastCartoonBtn?.addEventListener('click', () => {
+      void applyFastCartoon();
+    });
+    els.sourceUndoBtn?.addEventListener('click', undoSource);
+    els.sourceRedoBtn?.addEventListener('click', redoSource);
     els.autoCornerBg?.addEventListener('click', () => {
       const thrInp = document.getElementById('bg-rm-sensitive');
       const thr = thrInp ? Number(/** @type {HTMLInputElement} */ (thrInp).value) : 600;
@@ -823,6 +953,7 @@
     els.brushKeep?.classList.add('active');
     setMaskTool('brush');
     updateUndoButtons();
+    updateSourceUndoButtons();
   }
 
   window.imageEditor = {

@@ -656,8 +656,12 @@ code {
   font-size: 0.78rem;
 }
 
-.ai-bg-status {
-  margin: 0.45rem 0 0;
+.edit-style-toolbar {
+  margin-bottom: 0.45rem;
+}
+
+.edit-ai-status {
+  margin: 0 0 0.55rem;
   padding: 0.45rem 0.55rem;
   border-radius: var(--radius-sm);
   background: rgba(74, 105, 214, 0.1);

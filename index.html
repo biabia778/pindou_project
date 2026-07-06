@@ -63,8 +63,15 @@
         <div id="edit-panel" class="edit-panel" hidden>
           <h3 class="edit-heading">裁切与蒙版</h3>
           <p class="hint edit-intro">
-            裁切（Cropper 触屏友好）→ 蒙版：AI 智能抠图、画笔/魔棒、四角去背；蒙版外使用「留白背景」。
+            裁切 → 卡通化（AI / 快速）→ 蒙版抠图；全流程本地处理，不上传服务器。
           </p>
+          <div class="edit-toolbar edit-style-toolbar">
+            <button id="ai-cartoon" type="button" class="edit-action">AI 智能转卡通</button>
+            <button id="fast-cartoon" type="button" class="edit-action ghost">快速卡通</button>
+            <button id="source-undo" type="button" class="edit-action ghost" disabled>撤销原图</button>
+            <button id="source-redo" type="button" class="edit-action ghost" disabled>重做原图</button>
+          </div>
+          <p id="edit-ai-status" class="edit-ai-status hidden" aria-live="polite"></p>
           <div class="edit-toolbar">
             <button id="edit-mode-crop" type="button" class="edit-tab active">裁剪</button>
             <button id="edit-mode-mask" type="button" class="edit-tab">蒙版</button>
@@ -106,7 +113,6 @@
             ></canvas>
           </div>
           <p class="hint edit-crop-only crop-hint">拖动裁切框、拖角缩放；手机可双指缩放图片。满意后点「应用裁切」。</p>
-          <p id="ai-bg-status" class="ai-bg-status edit-mask-only hidden" aria-live="polite"></p>
         </div>
 
         <div class="field-row field-row-grid">
