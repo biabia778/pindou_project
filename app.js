@@ -587,9 +587,7 @@ function drawSourceToWorkCanvas(img, w, h, fitMode) {
   wCtx.fillStyle = `rgb(${br},${bgG},${bb})`;
   wCtx.fillRect(0, 0, w, h);
 
-  const el = /** @type {HTMLImageElement} */ (img);
-  const iw = Math.max(1, el.naturalWidth || el.width || w);
-  const ih = Math.max(1, el.naturalHeight || el.height || h);
+  const { iw, ih } = imagePixelSize(img);
 
   let dw = w;
   let dh = h;
@@ -683,33 +681,61 @@ function refreshLegend(w, h, materials) {
 
 /** @returns {CanvasImageSource | null} */
 function getPipelineImageSource() {
-  if (typeof imageEditor !== 'undefined' && imageEditor.isActive()) {
-    const prepared = imageEditor.getPreparedCanvas();
-    if (prepared) return prepared;
+  if (typeof imageEditor !== 'undefined' && imageEditor.isActive?.()) {
+    try {
+      const prepared = imageEditor.getPreparedCanvas?.();
+      if (prepared && prepared.width > 0 && prepared.height > 0) return prepared;
+      const src = imageEditor.getSourceCanvas?.();
+      if (src && src.width > 0 && src.height > 0) return src;
+    } catch (err) {
+      console.error('getPipelineImageSource failed', err);
+    }
   }
   return sourceImage;
 }
 
+/**
+ * @param {CanvasImageSource} img
+ * @returns {{ iw: number, ih: number }}
+ */
+function imagePixelSize(img) {
+  if (img instanceof HTMLCanvasElement) {
+    return { iw: Math.max(1, img.width), ih: Math.max(1, img.height) };
+  }
+  const el = /** @type {{ naturalWidth?: number, naturalHeight?: number, width?: number, height?: number }} */ (
+    img
+  );
+  return {
+    iw: Math.max(1, el.naturalWidth || el.width || 1),
+    ih: Math.max(1, el.naturalHeight || el.height || 1),
+  };
+}
+
 function runPipeline() {
   if (!sourceImage) return;
-  const src = getPipelineImageSource();
-  if (!src) return;
-  const w = clampGridDim(els.width.value);
-  const h = clampGridDim(els.height.value);
-  const fit = els.fit.value;
-  const work = drawSourceToWorkCanvas(src, w, h, fit);
-  if (
-    els.removeBg.checked &&
-    !(typeof imageEditor !== 'undefined' && imageEditor.isActive()) &&
-    typeof removeBorderConnectedBackground === 'function'
-  ) {
-    const wCx = work.getContext('2d');
-    if (wCx) {
-      const thr = Number(els.bgRmSensitive.value);
-      removeBorderConnectedBackground(wCx, Number.isFinite(thr) ? thr : 520);
+  try {
+    const src = getPipelineImageSource();
+    if (!src) return;
+    const w = clampGridDim(els.width.value);
+    const h = clampGridDim(els.height.value);
+    const fit = els.fit.value;
+    const work = drawSourceToWorkCanvas(src, w, h, fit);
+    if (
+      els.removeBg.checked &&
+      !(typeof imageEditor !== 'undefined' && imageEditor.isActive()) &&
+      typeof removeBorderConnectedBackground === 'function'
+    ) {
+      const wCx = work.getContext('2d');
+      if (wCx) {
+        const thr = Number(els.bgRmSensitive.value);
+        removeBorderConnectedBackground(wCx, Number.isFinite(thr) ? thr : 520);
+      }
     }
+    rasterize(work, w, h);
+  } catch (err) {
+    console.error('runPipeline failed', err);
+    if (els.stats) els.stats.textContent = '生成预览失败，请换一张图片或刷新页面重试';
   }
-  rasterize(work, w, h);
 }
 
 function syncAutoRemoveBgToMask() {
@@ -767,8 +793,14 @@ function loadImageFile(file) {
           } catch {
             naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
           }
-          afterReady();
+          runPipeline();
         });
+        try {
+          naturalAspect = imageEditor.getAspect();
+        } catch {
+          naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+        }
+        afterReady();
       } catch (err) {
         console.error('imageEditor.loadFromImage failed', err);
         fallbackReady();

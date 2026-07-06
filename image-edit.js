@@ -22,6 +22,7 @@
   let maskTool = 'brush';
   let wandTolerance = 22;
   let aiBusy = false;
+  let maskDirty = false;
 
   const MAX_SOURCE_UNDO = 12;
   const MAX_UNDO = 36;
@@ -214,6 +215,7 @@
   /** @param {number} sx @param {number} sy */
   function paintMask(sx, sy) {
     if (!maskCanvas) return;
+    maskDirty = true;
     const mctx = maskCanvas.getContext('2d');
     if (!mctx) return;
     const fillStyle = brushMode === 'keep' ? '#ffffff' : '#000000';
@@ -310,6 +312,7 @@
       nmx.fillRect(0, 0, nm.width, nm.height);
     }
     maskCanvas = nm;
+    maskDirty = false;
 
     undoStack.length = 0;
     redoStack.length = 0;
@@ -377,11 +380,13 @@
     if (!mctx) return;
     mctx.fillStyle = '#ffffff';
     mctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+    maskDirty = false;
   }
 
   function fillMask(v, opts) {
     if (!maskCanvas) return;
     if (!opts?.skipUndo) pushUndo();
+    maskDirty = true;
     const mctx = maskCanvas.getContext('2d');
     if (!mctx) return;
     mctx.fillStyle = v ? '#ffffff' : '#000000';
@@ -402,6 +407,7 @@
     if (typeof computeCornerBackgroundMask !== 'function') return;
 
     if (!opts?.skipUndo) pushUndo();
+    maskDirty = true;
 
     const w = sourceCanvas.width;
     const h = sourceCanvas.height;
@@ -417,6 +423,7 @@
       md.data[i + 2] = 0;
     }
     mctx.putImageData(md, 0, 0);
+    maskDirty = true;
     renderView();
     notifyChangeImmediate();
   }
@@ -579,6 +586,7 @@
         md.data[i + 2] = v;
       }
       mctx.putImageData(md, 0, 0);
+      maskDirty = true;
       renderView();
       notifyChangeImmediate();
       setEditStatus('AI 抠图完成，可用画笔微调');
@@ -610,6 +618,7 @@
     mctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     mctx.fill();
     mctx.restore();
+    maskDirty = true;
     renderView();
     notifyChangeImmediate();
   }
@@ -669,6 +678,7 @@
     }
 
     mctx.putImageData(md, 0, 0);
+    maskDirty = true;
     renderView();
     notifyChangeImmediate();
   }
@@ -713,7 +723,6 @@
       console.error('Edit panel init failed', err);
       mode = 'crop';
     }
-    notifyChangeImmediate();
   }
 
   function reset() {
@@ -724,28 +733,44 @@
     redoStack.length = 0;
     sourceUndoStack.length = 0;
     sourceRedoStack.length = 0;
+    maskDirty = false;
     setEditStatus('', false);
     if (els.panel) els.panel.hidden = true;
     onChange = null;
   }
 
   /** @returns {HTMLCanvasElement | null} */
+  function getSourceCanvas() {
+    return sourceCanvas;
+  }
+
+  function isMaskDirty() {
+    return maskDirty;
+  }
+
+  /** @returns {HTMLCanvasElement | null} */
   function getPreparedCanvas() {
     if (!sourceCanvas || !maskCanvas) return null;
+    if (!maskDirty) return sourceCanvas;
     const out = document.createElement('canvas');
     out.width = sourceCanvas.width;
     out.height = sourceCanvas.height;
     const octx = out.getContext('2d');
-    if (!octx) return null;
+    if (!octx) return sourceCanvas;
     octx.drawImage(sourceCanvas, 0, 0);
-    const img = octx.getImageData(0, 0, out.width, out.height);
-    const md = maskCanvas.getContext('2d')?.getImageData(0, 0, out.width, out.height);
-    if (!md) return out;
-    for (let i = 0; i < img.data.length; i += 4) {
-      if (md.data[i] < 128) img.data[i + 3] = 0;
+    try {
+      const img = octx.getImageData(0, 0, out.width, out.height);
+      const md = maskCanvas.getContext('2d')?.getImageData(0, 0, out.width, out.height);
+      if (!md) return out;
+      for (let i = 0; i < img.data.length; i += 4) {
+        if (md.data[i] < 128) img.data[i + 3] = 0;
+      }
+      octx.putImageData(img, 0, 0);
+      return out;
+    } catch (err) {
+      console.error('getPreparedCanvas failed, using source canvas', err);
+      return sourceCanvas;
     }
-    octx.putImageData(img, 0, 0);
-    return out;
   }
 
   function getAspect() {
@@ -981,6 +1006,8 @@
     loadFromImage,
     reset,
     getPreparedCanvas,
+    getSourceCanvas,
+    isMaskDirty,
     getAspect,
     isActive,
     applyCornerBgToMask,
