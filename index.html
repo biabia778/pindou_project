@@ -7,7 +7,26 @@
     <script>
       window.coi = { coepCredentialless: () => true };
     </script>
-    <script src="./coi-serviceworker.min.js?v=3"></script>
+    <script>
+      (function () {
+        var V = '4';
+        var key = 'pindou-app-v';
+        try {
+          if (sessionStorage.getItem(key) !== V) {
+            sessionStorage.setItem(key, V);
+            var reload = function () { location.reload(); };
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                Promise.all(regs.map(function (r) { return r.unregister(); })).then(reload);
+              }, reload);
+            } else {
+              reload();
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script src="./coi-serviceworker.min.js?v=4"></script>
     <script type="importmap">
       {
         "imports": {
@@ -206,8 +225,8 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
-    <script src="./image-edit.js?v=3"></script>
-    <script src="./app.js?v=3"></script>
+    <script src="./image-edit.js?v=4"></script>
+    <script src="./app.js?v=4"></script>
     <script>
       void (function bindRangeOutputs() {
         [['bg-rm-sensitive', 'bg-rm-sensitive-val']].forEach(([id, oid]) => {

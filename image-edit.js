@@ -4,7 +4,7 @@
  */
 (function () {
   const MAX_EDIT_PX = 1024;
-  const MODULE_V = '3';
+  const MODULE_V = '4';
 
   /** @type {HTMLCanvasElement | null} */
   let sourceCanvas = null;
