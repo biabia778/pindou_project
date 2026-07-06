@@ -754,17 +754,33 @@ function loadImageFile(file) {
       runPipeline();
     };
 
-    if (typeof imageEditor !== 'undefined' && imageEditor.loadFromImage) {
-      imageEditor.loadFromImage(img, () => {
-        naturalAspect = imageEditor.getAspect();
-        afterReady();
-      });
-    } else {
+    const fallbackReady = () => {
       naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
       afterReady();
+    };
+
+    if (typeof imageEditor !== 'undefined' && imageEditor.loadFromImage) {
+      try {
+        imageEditor.loadFromImage(img, () => {
+          try {
+            naturalAspect = imageEditor.getAspect();
+          } catch {
+            naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+          }
+          afterReady();
+        });
+      } catch (err) {
+        console.error('imageEditor.loadFromImage failed', err);
+        fallbackReady();
+      }
+    } else {
+      fallbackReady();
     }
   };
-  img.onerror = () => URL.revokeObjectURL(url);
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    if (els.stats) els.stats.textContent = '图片加载失败，请换一张试试';
+  };
   img.src = url;
 }
 
@@ -778,8 +794,10 @@ function wireUi() {
   });
 
   els.file.addEventListener('change', (e) => {
-    const file = /** @type {HTMLInputElement} */ (e.target).files?.[0];
+    const input = /** @type {HTMLInputElement} */ (e.target);
+    const file = input.files?.[0];
     if (isImageFile(file)) loadImageFile(file);
+    input.value = '';
   });
 
   ['dragenter', 'dragover'].forEach((ev) =>

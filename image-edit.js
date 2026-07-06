@@ -130,9 +130,9 @@
   function initCropper() {
     if (!els.cropImage || !sourceCanvas || typeof Cropper === 'undefined') return;
     destroyCropper();
-    const dataUrl = sourceCanvas.toDataURL('image/png');
-    const boot = () => {
-      if (!els.cropImage || !sourceCanvas) return;
+    els.cropImage.removeAttribute('crossorigin');
+    els.cropImage.src = sourceCanvas.toDataURL('image/png');
+    try {
       cropper = new Cropper(els.cropImage, {
         viewMode: 1,
         dragMode: 'move',
@@ -150,13 +150,10 @@
         movable: true,
         scalable: true,
       });
-    };
-    els.cropImage.onload = () => boot();
-    els.cropImage.onerror = () => {
-      console.error('Cropper preview image failed to load');
-    };
-    els.cropImage.src = dataUrl;
-    if (els.cropImage.complete && els.cropImage.naturalWidth > 0) boot();
+    } catch (err) {
+      console.error('Cropper init failed', err);
+      cropper = null;
+    }
   }
 
   function layoutView() {
@@ -372,6 +369,14 @@
     restoreMaskState(next);
     updateUndoButtons();
     notifyChangeImmediate();
+  }
+
+  function seedMaskCanvas() {
+    if (!maskCanvas) return;
+    const mctx = maskCanvas.getContext('2d');
+    if (!mctx) return;
+    mctx.fillStyle = '#ffffff';
+    mctx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
   }
 
   function fillMask(v, opts) {
@@ -690,7 +695,7 @@
     maskCanvas = document.createElement('canvas');
     maskCanvas.width = w;
     maskCanvas.height = h;
-    fillMask(true, { skipUndo: true });
+    seedMaskCanvas();
 
     undoStack.length = 0;
     redoStack.length = 0;
@@ -702,7 +707,13 @@
     setEditStatus('', false);
 
     if (els.panel) els.panel.hidden = false;
-    setMode('crop');
+    try {
+      setMode('crop');
+    } catch (err) {
+      console.error('Edit panel init failed', err);
+      mode = 'crop';
+    }
+    notifyChangeImmediate();
   }
 
   function reset() {
