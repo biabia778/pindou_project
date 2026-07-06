@@ -4,6 +4,7 @@
  */
 (function () {
   const MAX_EDIT_PX = 1024;
+  const MODULE_V = '3';
 
   /** @type {HTMLCanvasElement | null} */
   let sourceCanvas = null;
@@ -491,7 +492,7 @@
     if (els.aiCartoonBtn) els.aiCartoonBtn.disabled = true;
     setEditStatus('快速卡通处理中…');
     try {
-      const { fastCartoonize } = await import('./fast-cartoon.js');
+      const { fastCartoonize } = await import(`./fast-cartoon.js?v=${MODULE_V}`);
       pushSourceUndo();
       const out = fastCartoonize(sourceCanvas);
       replaceSourceCanvas(out);
@@ -516,7 +517,7 @@
     if (els.aiCartoonBtn) els.aiCartoonBtn.disabled = true;
     setEditStatus('准备 AI 卡通模型（首次约 1.5MB）…');
     try {
-      const { aiCartoonize } = await import('./ai-cartoon.js');
+      const { aiCartoonize } = await import(`./ai-cartoon.js?v=${MODULE_V}`);
       pushSourceUndo();
       const out = await aiCartoonize(sourceCanvas, (msg) => setEditStatus(msg));
       replaceSourceCanvas(out);
@@ -550,7 +551,7 @@
 
     try {
       if (mode === 'crop') setMode('mask');
-      const { aiRemoveBackground } = await import('./ai-bg-remove.js');
+      const { aiRemoveBackground } = await import(`./ai-bg-remove.js?v=${MODULE_V}`);
       const blob = await aiRemoveBackground(sourceCanvas, (key, cur, total) => {
         if (total > 0) {
           setEditStatus(`下载 ${key}… ${Math.min(100, Math.round((100 * cur) / total))}%`);

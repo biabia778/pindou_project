@@ -102,18 +102,18 @@ export async function aiCartoonize(sourceCanvas, onProgress) {
   }
 
   tensor = tensor.squeeze();
-  let result = tensor.sub(tf.scalar(-1)).div(tf.scalar(2)).clipByValue(0, 1);
+  let outTensor = tensor.sub(tf.scalar(-1)).div(tf.scalar(2)).clipByValue(0, 1);
   tensor.dispose();
 
   const pad = Math.round((Math.abs(origW - origH) / Math.max(origW, origH)) * INFER_SIZE);
   const slice = origW > origH ? [0, pad, 0] : [pad, 0, 0];
-  result = result.slice(slice);
+  outTensor = outTensor.slice(slice);
 
   const temp = document.createElement('canvas');
-  temp.width = result.shape[1];
-  temp.height = result.shape[0];
-  await tf.browser.toPixels(result, temp);
-  result.dispose();
+  temp.width = outTensor.shape[1];
+  temp.height = outTensor.shape[0];
+  await tf.browser.toPixels(outTensor, temp);
+  outTensor.dispose();
 
   const outCanvas = document.createElement('canvas');
   outCanvas.width = origW;
