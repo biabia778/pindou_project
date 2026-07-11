@@ -4,7 +4,7 @@
  */
 (function () {
   const MAX_EDIT_PX = 1024;
-  const MODULE_V = '12';
+  const MODULE_V = '13';
 
   /** @type {HTMLCanvasElement | null} */
   let sourceCanvas = null;
@@ -13,6 +13,7 @@
 
   /** @type {InstanceType<typeof Cropper> | null} */
   let cropper = null;
+  let cropperNeedsLayout = false;
 
   /** @type {'crop' | 'mask'} */
   let mode = 'crop';
@@ -123,6 +124,23 @@
     document.body.style.overflow = '';
   }
 
+  function isEditPanelVisible() {
+    return Boolean(els.panel && !els.panel.hidden);
+  }
+
+  function scheduleCropperResize() {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (mode !== 'crop' || !cropper) return;
+        try {
+          cropper.resize();
+        } catch (err) {
+          console.error('Cropper resize failed', err);
+        }
+      });
+    });
+  }
+
   function destroyCropper() {
     if (cropper) {
       cropper.destroy();
@@ -132,6 +150,11 @@
 
   function initCropper() {
     if (!els.cropImage || !sourceCanvas || typeof Cropper === 'undefined') return;
+    if (!isEditPanelVisible()) {
+      cropperNeedsLayout = true;
+      return;
+    }
+    cropperNeedsLayout = false;
     destroyCropper();
     els.cropImage.removeAttribute('crossorigin');
     els.cropImage.src = sourceCanvas.toDataURL('image/png');
@@ -152,6 +175,9 @@
         zoomOnWheel: true,
         movable: true,
         scalable: true,
+        ready() {
+          scheduleCropperResize();
+        },
       });
     } catch (err) {
       console.error('Cropper init failed', err);
@@ -159,12 +185,27 @@
     }
   }
 
+  /** 编辑区从隐藏变为可见时刷新裁切/蒙版画布尺寸。 */
+  function refreshEditLayout() {
+    if (!sourceCanvas) return;
+    if (mode === 'crop') {
+      if (cropper && !cropperNeedsLayout) {
+        scheduleCropperResize();
+      } else {
+        initCropper();
+      }
+      return;
+    }
+    layoutView();
+    renderView();
+  }
+
   function layoutView() {
     if (!els.view || !sourceCanvas) return;
     const wrap = els.view.parentElement;
     if (!wrap) return;
-    const maxW = Math.max(200, wrap.clientWidth - 4);
-    const maxH = Math.max(160, Math.min(320, window.innerHeight * 0.38));
+    const maxW = Math.max(240, wrap.clientWidth - 4);
+    const maxH = Math.max(200, Math.min(360, window.innerHeight * 0.42));
     viewScale = Math.min(maxW / sourceCanvas.width, maxH / sourceCanvas.height, 1);
     const dw = Math.round(sourceCanvas.width * viewScale);
     const dh = Math.round(sourceCanvas.height * viewScale);
@@ -260,6 +301,7 @@
       els.cropWrap?.classList.remove('hidden');
       els.view?.classList.add('hidden');
       initCropper();
+      if (isEditPanelVisible()) scheduleCropperResize();
     } else {
       destroyCropper();
       els.cropWrap?.classList.add('hidden');
@@ -1008,12 +1050,29 @@
     });
 
     window.addEventListener('resize', () => {
-      if (!sourceCanvas) return;
+      if (!sourceCanvas || !isEditPanelVisible()) return;
       if (mode === 'mask') {
         layoutView();
         renderView();
+      } else if (mode === 'crop' && cropper) {
+        scheduleCropperResize();
       }
     });
+
+    const editStage = document.querySelector('.edit-stage');
+    if (editStage && typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => {
+        if (!sourceCanvas || !isEditPanelVisible()) return;
+        if (mode === 'mask') {
+          layoutView();
+          renderView();
+        } else if (mode === 'crop') {
+          if (cropper) scheduleCropperResize();
+          else if (cropperNeedsLayout) initCropper();
+        }
+      });
+      ro.observe(editStage);
+    }
 
     if (els.brush) {
       if (isCoarsePointer && Number(els.brush.value) < 36) {
@@ -1060,6 +1119,7 @@
     isActive,
     applyCornerBgToMask,
     simplifySource,
+    refreshEditLayout,
     wire,
   };
 

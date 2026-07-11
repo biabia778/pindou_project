@@ -819,6 +819,11 @@ function setCustomizeOpen(open) {
     els.toggleCustomize.textContent = open ? '收起个性化设置' : '个性化更改';
     els.toggleCustomize.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
+  if (open && typeof imageEditor !== 'undefined' && imageEditor.refreshEditLayout) {
+    requestAnimationFrame(() => {
+      imageEditor.refreshEditLayout();
+    });
+  }
 }
 
 function runPipeline() {
