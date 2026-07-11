@@ -190,6 +190,95 @@ a:hover {
   color: var(--muted);
 }
 
+.quick-actions {
+  margin-top: 0.85rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: rgba(74, 105, 214, 0.06);
+  border: 1px solid rgba(74, 105, 214, 0.14);
+}
+
+.auto-status {
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.quick-actions-row,
+.quick-actions-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.quick-actions-tools {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(74, 105, 214, 0.1);
+}
+
+.customize-panel {
+  margin-top: 0.85rem;
+  padding-top: 0.2rem;
+}
+
+.subsection-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #2d3550;
+}
+
+.customize-intro {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+}
+
+.settings-group {
+  margin-bottom: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+}
+
+.settings-group > summary {
+  cursor: pointer;
+  padding: 0.62rem 0.75rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #3a4260;
+  list-style: none;
+  user-select: none;
+}
+
+.settings-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-group > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.4rem;
+  transition: transform 0.15s ease;
+}
+
+.settings-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.settings-body {
+  padding: 0 0.75rem 0.75rem;
+}
+
+.settings-body .edit-panel {
+  margin-top: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
 .drop:hover,
 .drop:focus-visible,
 .drop.drag {

@@ -47,12 +47,19 @@ const els = {
   stats: /** @type {HTMLElement} */ (document.getElementById('stats')),
   legend: /** @type {HTMLElement} */ (document.getElementById('legend')),
   regenerate: /** @type {HTMLButtonElement} */ (document.getElementById('regenerate')),
+  quickActions: /** @type {HTMLElement | null} */ (document.getElementById('quick-actions')),
+  autoBeads: /** @type {HTMLButtonElement | null} */ (document.getElementById('auto-beads')),
+  autoStatus: /** @type {HTMLElement | null} */ (document.getElementById('auto-status')),
+  toggleCustomize: /** @type {HTMLButtonElement | null} */ (document.getElementById('toggle-customize')),
+  customizePanel: /** @type {HTMLElement | null} */ (document.getElementById('customize-panel')),
 };
 
 const ctx = els.previewCanvas.getContext('2d', { willReadFrequently: true });
 
 let sourceImage = null;
 let naturalAspect = 1;
+let autoRunning = false;
+let customizeOpen = false;
 
 function clampGridDim(v) {
   const n = Math.round(Number(v));
@@ -637,7 +644,11 @@ function rasterize(workCanvas, w, h) {
   }
 
   const colorCap = parseInt(els.colorCap.value, 10) || 0;
-  if (colorCap >= 2) applyColorCountCap(beadGrid, colorCap);
+  if (colorCap >= 2) {
+    const proc = window.pindouBeadProcess;
+    if (proc?.applySmartColorCountCap) proc.applySmartColorCountCap(beadGrid, colorCap, ROW_BY_CODE);
+    else applyColorCountCap(beadGrid, colorCap);
+  }
   const materials = getMaterialTallySortedByUsage(beadGrid);
 
   paintBeadCanvas(beadGrid, w, h, materials);
@@ -711,14 +722,140 @@ function imagePixelSize(img) {
   };
 }
 
+/**
+ * @returns {HTMLCanvasElement | null}
+ */
+function getPipelineCanvas() {
+  const src = getPipelineImageSource();
+  if (!src) return null;
+  if (src instanceof HTMLCanvasElement) return src;
+  const { iw, ih } = imagePixelSize(src);
+  const c = document.createElement('canvas');
+  c.width = iw;
+  c.height = ih;
+  const cx = c.getContext('2d');
+  if (!cx) return null;
+  cx.drawImage(src, 0, 0, iw, ih);
+  return c;
+}
+
+function setAutoStatus(msg) {
+  if (els.autoStatus) els.autoStatus.textContent = msg;
+}
+
+function applyAnalysisToControls(analysis) {
+  setWidthDim(analysis.gridW, { applyAspect: false });
+  setHeightDim(analysis.gridH);
+  els.colorCap.value = String(analysis.colorCap);
+  els.fit.value = analysis.fit;
+  els.removeBg.checked = analysis.removeBg;
+  els.bgRmSensitive.value = String(analysis.bgSens);
+  const sensOut = document.getElementById('bg-rm-sensitive-val');
+  if (sensOut) sensOut.textContent = String(analysis.bgSens);
+  syncRemoveBgSensitivityRow();
+}
+
+/**
+ * @param {{ skipEnhance?: boolean }} [opts]
+ */
+async function runAutoBeadPipeline(opts) {
+  if (!sourceImage || autoRunning) return;
+  const proc = window.pindouBeadProcess;
+  if (!proc?.analyzeImage) {
+    runPipeline();
+    return;
+  }
+
+  autoRunning = true;
+  if (els.autoBeads) els.autoBeads.disabled = true;
+  setAutoStatus('正在分析图片…');
+
+  try {
+    const analysisCanvas =
+      typeof imageEditor !== 'undefined' && imageEditor.getSourceCanvas?.()
+        ? imageEditor.getSourceCanvas()
+        : getPipelineCanvas();
+    const analysisImg = analysisCanvas || sourceImage;
+    const analysis = proc.analyzeImage(analysisImg);
+    applyAnalysisToControls(analysis);
+
+    if (!opts?.skipEnhance && typeof imageEditor !== 'undefined' && imageEditor.isActive?.()) {
+      setAutoStatus('正在优化画面（简化色块）…');
+      imageEditor.simplifySource?.({
+        levels: analysis.simplifyLevels,
+        blurPasses: analysis.simplifyBlur,
+        skipUndo: true,
+      });
+      if (analysis.removeBg) {
+        setAutoStatus('正在去除背景…');
+        imageEditor.applyCornerBgToMask?.(analysis.bgSens, { skipUndo: true });
+        els.removeBg.checked = true;
+        syncRemoveBgSensitivityRow();
+      }
+    }
+
+    setAutoStatus(`已应用：${analysis.summary}`);
+    runPipeline();
+  } catch (err) {
+    console.error('runAutoBeadPipeline failed', err);
+    setAutoStatus('自动处理失败，已尝试直接生成');
+    runPipeline();
+  } finally {
+    autoRunning = false;
+    if (els.autoBeads) els.autoBeads.disabled = false;
+  }
+}
+
+function showQuickActions(show) {
+  if (els.quickActions) els.quickActions.hidden = !show;
+}
+
+function setCustomizeOpen(open) {
+  customizeOpen = open;
+  if (els.customizePanel) els.customizePanel.hidden = !open;
+  const editPanel = document.getElementById('edit-panel');
+  if (editPanel) editPanel.hidden = !open;
+  if (els.toggleCustomize) {
+    els.toggleCustomize.textContent = open ? '收起个性化设置' : '个性化更改';
+    els.toggleCustomize.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
 function runPipeline() {
   if (!sourceImage) return;
   try {
-    const src = getPipelineImageSource();
-    if (!src) return;
     const w = clampGridDim(els.width.value);
     const h = clampGridDim(els.height.value);
     const fit = els.fit.value;
+    const proc = window.pindouBeadProcess;
+    const pipelineCanvas = getPipelineCanvas();
+    const bg = parseHexRgb(els.bg.value);
+
+    if (proc?.rasterizeAreaAverage && pipelineCanvas) {
+      const beadGrid = proc.rasterizeAreaAverage(
+        pipelineCanvas,
+        w,
+        h,
+        fit,
+        bg,
+        (r, g, b, a) => nearestPaletteRow(r, g, b, a),
+      );
+      const colorCap = parseInt(els.colorCap.value, 10) || 0;
+      if (colorCap >= 2) {
+        if (proc.applySmartColorCountCap) proc.applySmartColorCountCap(beadGrid, colorCap, ROW_BY_CODE);
+        else applyColorCountCap(beadGrid, colorCap);
+      }
+      const materials = getMaterialTallySortedByUsage(beadGrid);
+      paintBeadCanvas(beadGrid, w, h, materials);
+      lastGrid = beadGrid;
+      refreshLegend(w, h, materials);
+      els.download.disabled = false;
+      els.copyList.disabled = false;
+      return;
+    }
+
+    const src = getPipelineImageSource();
+    if (!src) return;
     const work = drawSourceToWorkCanvas(src, w, h, fit);
     if (
       els.removeBg.checked &&
@@ -772,17 +909,18 @@ function loadImageFile(file) {
     sourceImage = img;
 
     const afterReady = () => {
-      if (els.lockAspect.checked) {
-        const curW = clampGridDim(els.width.value || 48);
-        setWidthDim(curW, { applyAspect: true });
-      }
+      showQuickActions(true);
+      setCustomizeOpen(false);
       els.regenerate.disabled = false;
-      runPipeline();
+      void runAutoBeadPipeline();
     };
 
     const fallbackReady = () => {
       naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
-      afterReady();
+      showQuickActions(true);
+      setCustomizeOpen(false);
+      els.regenerate.disabled = false;
+      void runAutoBeadPipeline();
     };
 
     if (typeof imageEditor !== 'undefined' && imageEditor.loadFromImage) {
@@ -793,7 +931,7 @@ function loadImageFile(file) {
           } catch {
             naturalAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
           }
-          runPipeline();
+          if (!autoRunning) runPipeline();
         });
         try {
           naturalAspect = imageEditor.getAspect();
@@ -892,6 +1030,14 @@ function wireUi() {
   });
 
   els.regenerate.addEventListener('click', runPipeline);
+
+  els.autoBeads?.addEventListener('click', () => {
+    void runAutoBeadPipeline();
+  });
+
+  els.toggleCustomize?.addEventListener('click', () => {
+    setCustomizeOpen(!customizeOpen);
+  });
 
   els.download.addEventListener('click', () => {
     if (!lastGrid) return;

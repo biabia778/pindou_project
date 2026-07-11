@@ -12,7 +12,7 @@
     <script>
       if (location.protocol !== 'file:') {
         (function () {
-          var V = '5';
+          var V = '6';
           var key = 'pindou-app-v';
           try {
             if (sessionStorage.getItem(key) !== V) {
@@ -32,7 +32,7 @@
     </script>
     <script>
       if (location.protocol !== 'file:') {
-        document.write('<script src="./coi-serviceworker.min.js?v=5"><\/script>');
+        document.write('<script src="./coi-serviceworker.min.js?v=6"><\/script>');
       }
     </script>
     <script type="importmap">
@@ -76,7 +76,7 @@
 
     <main class="layout">
       <section class="panel controls" aria-label="参数设置">
-        <h2 class="panel-title">步骤 1 · 上传与参数</h2>
+        <h2 class="panel-title">步骤 1 · 上传图片</h2>
         <div
           id="drop-zone"
           class="drop"
@@ -89,8 +89,29 @@
         </div>
         <input id="file" type="file" accept="image/*" hidden />
 
+        <div id="quick-actions" class="quick-actions" hidden>
+          <p id="auto-status" class="auto-status muted" aria-live="polite">上传后将自动分析并生成拼豆图</p>
+          <div class="quick-actions-row">
+            <button id="auto-beads" type="button" class="primary">一键转拼豆图</button>
+            <button id="toggle-customize" type="button" class="ghost" aria-expanded="false">
+              个性化更改
+            </button>
+          </div>
+          <div class="quick-actions-tools">
+            <button id="regenerate" type="button" class="ghost" disabled>重新生成</button>
+            <button id="download-png" type="button" class="primary" disabled>下载 PNG</button>
+            <button id="copy-list" type="button" disabled>复制用料表</button>
+          </div>
+        </div>
+
+        <div id="customize-panel" class="customize-panel" hidden>
+          <h3 class="subsection-title">个性化设置</h3>
+          <p class="hint customize-intro">需要裁切、抠图或微调参数时在此调整，改完后点「重新生成」。</p>
+
+          <details class="settings-group" open>
+            <summary>裁切 · 蒙版 · 卡通化</summary>
+            <div class="settings-body">
         <div id="edit-panel" class="edit-panel" hidden>
-          <h3 class="edit-heading">裁切与蒙版</h3>
           <p class="hint edit-intro">
             裁切 → 卡通化（AI / 快速）→ 蒙版抠图；全流程本地处理，不上传服务器。
           </p>
@@ -156,7 +177,12 @@
           </div>
           <p class="hint edit-crop-only crop-hint">拖动裁切框、拖角缩放；手机可双指缩放图片。满意后点「应用裁切」。</p>
         </div>
+            </div>
+          </details>
 
+          <details class="settings-group">
+            <summary>画布尺寸</summary>
+            <div class="settings-body">
         <div class="field-row field-row-grid">
           <label for="grid-w">宽度（格）</label>
           <input id="grid-w" type="range" min="12" max="256" value="48" />
@@ -169,7 +195,12 @@
           <input id="grid-h-num" class="grid-num" type="number" min="12" max="256" step="1" value="48" inputmode="numeric" />
           <output id="grid-h-val" for="grid-h">48</output>
         </div>
+            </div>
+          </details>
 
+          <details class="settings-group">
+            <summary>颜色与画面适配</summary>
+            <div class="settings-body">
         <div class="field">
           <label for="color-cap">颜色种类上限</label>
           <select id="color-cap">
@@ -183,7 +214,7 @@
             <option value="64">最多 64 色</option>
             <option value="96">最多 96 色</option>
           </select>
-          <p class="hint field-hint">超出时会把用量最少的色号合并到 LAB 最接近的保留色上（简化拼豆采购）。</p>
+          <p class="hint field-hint">超出时按色相智能合并（避免绿并入棕、红并入灰），减少脏色。</p>
         </div>
 
         <label class="check">
@@ -217,11 +248,8 @@
           <label for="bg-color">留白背景</label>
           <input id="bg-color" type="color" value="#ffffff" />
         </div>
-
-        <div class="btn-row">
-          <button id="regenerate" type="button" class="ghost" disabled>重新生成</button>
-          <button id="download-png" type="button" class="primary" disabled>下载 PNG</button>
-          <button id="copy-list" type="button" disabled>复制用料表</button>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -270,7 +298,8 @@
         }
       })();
     </script>
-    <script src="./ai-cartoon-styles.js?v=11"></script>
+    <script src="./bead-process.js?v=12"></script>
+    <script src="./ai-cartoon-styles.js?v=12"></script>
     <script src="./palette-data.js"></script>
     <script src="./color.js"></script>
     <script src="./subject-bg.js"></script>
@@ -279,8 +308,8 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
-    <script src="./image-edit.js?v=11"></script>
-    <script src="./app.js?v=11"></script>
+    <script src="./image-edit.js?v=12"></script>
+    <script src="./app.js?v=12"></script>
     <script>
       void (function bindRangeOutputs() {
         [['bg-rm-sensitive', 'bg-rm-sensitive-val']].forEach(([id, oid]) => {

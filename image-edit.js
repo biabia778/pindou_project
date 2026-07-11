@@ -4,7 +4,7 @@
  */
 (function () {
   const MAX_EDIT_PX = 1024;
-  const MODULE_V = '10';
+  const MODULE_V = '12';
 
   /** @type {HTMLCanvasElement | null} */
   let sourceCanvas = null;
@@ -746,7 +746,7 @@
     setMaskTool('brush');
     setEditStatus('', false);
 
-    if (els.panel) els.panel.hidden = false;
+    if (els.panel) els.panel.hidden = true;
     try {
       setMode('crop');
     } catch (err) {
@@ -1033,6 +1033,23 @@
     updateSourceUndoButtons();
   }
 
+  /**
+   * 静物/食物简化预处理（供一键转拼豆图）。
+   * @param {{ levels?: number, blurPasses?: number, skipUndo?: boolean }} [opts]
+   */
+  function simplifySource(opts) {
+    if (!sourceCanvas) return false;
+    const proc = window.pindouBeadProcess;
+    if (!proc?.simplifyCanvas) return false;
+    if (!opts?.skipUndo) pushSourceUndo();
+    const out = proc.simplifyCanvas(sourceCanvas, {
+      levels: opts?.levels ?? 10,
+      blurPasses: opts?.blurPasses ?? 1,
+    });
+    replaceSourceCanvas(out);
+    return true;
+  }
+
   window.imageEditor = {
     loadFromImage,
     reset,
@@ -1042,6 +1059,7 @@
     getAspect,
     isActive,
     applyCornerBgToMask,
+    simplifySource,
     wire,
   };
 
